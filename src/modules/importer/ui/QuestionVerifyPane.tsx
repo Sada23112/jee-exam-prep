@@ -1,7 +1,11 @@
 import { useState } from 'react'
 import type { ImportedQuestionDraft } from '../domain/import-session'
 import type { Subject, QuestionType, VerificationState, Difficulty } from '../../question-bank/domain/question'
-import { validateQuestionStructure } from '../domain/import-session'
+import {
+  validateQuestionStructure,
+  normalizeDraftOptionsAndKey,
+  normalizeOptionId,
+} from '../domain/import-session'
 import { MathText } from '../../../shared/ui/MathText'
 import { AssetImage } from '../../../shared/ui/AssetImage'
 import { Icon } from '../../../shared/ui/Icon'
@@ -28,8 +32,8 @@ export function QuestionVerifyPane({
   const [activeTab, setActiveTab] = useState<'edit' | 'preview'>('edit')
   const [showSpoilers, setShowSpoilers] = useState<boolean>(false)
 
-  const current = questions[activeQuestionIndex]
-  if (!current) {
+  const rawCurrent = questions[activeQuestionIndex]
+  if (!rawCurrent) {
     return (
       <div className="verify-empty-pane">
         <p>No questions currently in this import session.</p>
@@ -40,13 +44,14 @@ export function QuestionVerifyPane({
     )
   }
 
+  const current = normalizeDraftOptionsAndKey(rawCurrent)
   const structureValidation = validateQuestionStructure(current)
 
   const updateField = <K extends keyof ImportedQuestionDraft>(field: K, value: ImportedQuestionDraft[K]) => {
-    onUpdateQuestion(activeQuestionIndex, {
+    onUpdateQuestion(activeQuestionIndex, normalizeDraftOptionsAndKey({
       ...current,
       [field]: value,
-    })
+    }))
   }
 
   const handleOptionTextChange = (optionId: string, text: string) => {
@@ -55,26 +60,28 @@ export function QuestionVerifyPane({
   }
 
   const handleOptionCorrectToggle = (optionId: string) => {
+    const cleanOptId = normalizeOptionId(optionId)
     if (current.type === 'single-correct') {
-      onUpdateQuestion(activeQuestionIndex, {
+      onUpdateQuestion(activeQuestionIndex, normalizeDraftOptionsAndKey({
         ...current,
-        correctOptionIds: [optionId],
+        correctOptionIds: [cleanOptId],
         answerKeyStatus: 'verified',
         answerSource: 'manually-entered',
         answerVerification: 'verified',
-      })
+      }))
     } else {
-      const exists = current.correctOptionIds.includes(optionId)
+      const currentCorrect = current.correctOptionIds.map((id, i) => normalizeOptionId(id, i))
+      const exists = currentCorrect.includes(cleanOptId)
       const next = exists
-        ? current.correctOptionIds.filter(id => id !== optionId)
-        : [...current.correctOptionIds, optionId]
-      onUpdateQuestion(activeQuestionIndex, {
+        ? currentCorrect.filter(id => id !== cleanOptId)
+        : [...currentCorrect, cleanOptId]
+      onUpdateQuestion(activeQuestionIndex, normalizeDraftOptionsAndKey({
         ...current,
         correctOptionIds: next,
         answerKeyStatus: next.length > 0 ? 'verified' : 'missing',
         answerSource: 'manually-entered',
         answerVerification: next.length > 0 ? 'verified' : 'incomplete',
-      })
+      }))
     }
   }
 
@@ -89,10 +96,10 @@ export function QuestionVerifyPane({
         alert(`Cannot mark question transcription as verified:\n${structureValidation.errors.join('\n')}`)
         return
       }
-      onUpdateQuestion(activeQuestionIndex, {
+      onUpdateQuestion(activeQuestionIndex, normalizeDraftOptionsAndKey({
         ...current,
         verification: 'verified',
-      })
+      }))
     } else {
       updateField('verification', state)
     }
@@ -161,14 +168,14 @@ export function QuestionVerifyPane({
               onChange={e => {
                 const nextType = e.target.value as QuestionType
                 if (nextType === 'numerical') {
-                  onUpdateQuestion(activeQuestionIndex, {
+                  onUpdateQuestion(activeQuestionIndex, normalizeDraftOptionsAndKey({
                     ...current,
                     type: nextType,
                     options: [],
                     correctOptionIds: [],
-                  })
+                  }))
                 } else if (current.options.length === 0) {
-                  onUpdateQuestion(activeQuestionIndex, {
+                  onUpdateQuestion(activeQuestionIndex, normalizeDraftOptionsAndKey({
                     ...current,
                     type: nextType,
                     options: [
@@ -178,7 +185,7 @@ export function QuestionVerifyPane({
                       { id: 'D', text: '' },
                     ],
                     numericalAnswer: '',
-                  })
+                  }))
                 } else {
                   updateField('type', nextType)
                 }
@@ -432,13 +439,13 @@ export function QuestionVerifyPane({
                         value={current.numericalAnswer}
                         onChange={e => {
                           const val = e.target.value
-                          onUpdateQuestion(activeQuestionIndex, {
+                          onUpdateQuestion(activeQuestionIndex, normalizeDraftOptionsAndKey({
                             ...current,
                             numericalAnswer: val,
                             answerKeyStatus: val.trim() ? 'verified' : 'missing',
                             answerSource: 'manually-entered',
                             answerVerification: val.trim() ? 'verified' : 'incomplete',
-                          })
+                          }))
                         }}
                         placeholder="e.g. 15.5 or -4"
                         className="text-input"

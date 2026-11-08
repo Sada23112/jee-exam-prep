@@ -1,5 +1,10 @@
 import type { Subject, QuestionType } from '../../question-bank/domain/question'
-import { createEmptyImportedQuestion, type ImportedQuestionDraft } from '../domain/import-session'
+import {
+  createEmptyImportedQuestion,
+  normalizeOptionId,
+  normalizeDraftOptionsAndKey,
+  type ImportedQuestionDraft,
+} from '../domain/import-session'
 
 export const GEMINI_API_KEY_STORAGE = 'jee_cbt_gemini_api_key'
 export const GEMINI_MODEL_STORAGE = 'jee_cbt_gemini_model'
@@ -58,6 +63,7 @@ Extract all examination questions present on this question paper page.
 Ensure mathematical equations and formulas are formatted strictly in standard LaTeX math notation using $...$ for inline math and $$...$$ for display math.
 Preserve exact wording, signs, and values.
 Do NOT invent answers or options if they are not visible.
+Option IDs: Always standardize multiple-choice option IDs as "A", "B", "C", "D". If the question paper numbers options as (1), (2), (3), (4) or 1, 2, 3, 4, map 1 -> A, 2 -> B, 3 -> C, 4 -> D.
 Always return structured JSON matching this schema:
 {
   "questions": [
@@ -182,12 +188,12 @@ export async function extractQuestionsWithGemini(options: {
     draft.solution = raw.solution || ''
 
     if (type !== 'numerical' && Array.isArray(raw.options) && raw.options.length > 0) {
-      draft.options = raw.options.map(o => ({
-        id: (o.id || 'A').toUpperCase(),
+      draft.options = raw.options.map((o, idx) => ({
+        id: normalizeOptionId(o.id || 'A', idx),
         text: o.text || '',
       }))
       draft.correctOptionIds = Array.isArray(raw.correctOptionIds)
-        ? raw.correctOptionIds.map(id => id.toUpperCase())
+        ? raw.correctOptionIds.map((id, idx) => normalizeOptionId(id, idx))
         : []
     } else if (type === 'numerical') {
       draft.options = []
@@ -207,6 +213,6 @@ export async function extractQuestionsWithGemini(options: {
     if (type !== 'numerical' && draft.options.length === 0) flags.push('No options extracted.')
     draft.uncertainFlags = flags
 
-    return draft
+    return normalizeDraftOptionsAndKey(draft)
   })
 }

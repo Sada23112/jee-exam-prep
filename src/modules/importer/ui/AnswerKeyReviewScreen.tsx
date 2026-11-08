@@ -1,6 +1,10 @@
 import { useState } from 'react'
 import type { ImportedQuestionDraft, AnswerKeyStatus, AnswerSource } from '../domain/import-session'
-import { inferAnswerKeyStatus } from '../domain/import-session'
+import {
+  inferAnswerKeyStatus,
+  normalizeOptionId,
+  normalizeDraftOptionsAndKey,
+} from '../domain/import-session'
 import { Icon } from '../../../shared/ui/Icon'
 
 interface AnswerKeyReviewScreenProps {
@@ -51,46 +55,42 @@ export function AnswerKeyReviewScreen({
   const handleOptionSelectSingle = (index: number, optId: string) => {
     const q = questions[index]
     if (!q) return
-    const isAlready = q.correctOptionIds.length === 1 && q.correctOptionIds[0] === optId
+    const currentSelected = q.correctOptionIds.map((id, i) => normalizeOptionId(id, i))
+    const isAlready = currentSelected.length === 1 && currentSelected[0] === optId
     const nextOptionIds = isAlready ? [] : [optId]
     const nextStatus: AnswerKeyStatus = nextOptionIds.length > 0 ? 'verified' : 'missing'
 
-    const baseOptions = q.options.length >= 2
-      ? q.options
-      : ['A', 'B', 'C', 'D'].map(id => ({ id, text: q.options.find(o => o.id === id)?.text || '' }))
-
-    onUpdateQuestion(index, {
+    const updated = normalizeDraftOptionsAndKey({
       ...q,
-      options: baseOptions,
       correctOptionIds: nextOptionIds,
       answerKeyStatus: nextStatus,
       answerSource: 'manually-entered',
       answerVerification: nextStatus === 'verified' ? 'verified' : 'incomplete',
     })
+
+    onUpdateQuestion(index, updated)
   }
 
   const handleOptionToggleMultiple = (index: number, optId: string) => {
     const q = questions[index]
     if (!q) return
-    const exists = q.correctOptionIds.includes(optId)
+    const currentSelected = q.correctOptionIds.map((id, i) => normalizeOptionId(id, i))
+    const exists = currentSelected.includes(optId)
     const next = exists
-      ? q.correctOptionIds.filter(id => id !== optId)
-      : [...q.correctOptionIds, optId]
+      ? currentSelected.filter(id => id !== optId)
+      : [...currentSelected, optId]
 
     const nextStatus: AnswerKeyStatus = next.length > 0 ? 'verified' : 'missing'
 
-    const baseOptions = q.options.length >= 2
-      ? q.options
-      : ['A', 'B', 'C', 'D'].map(id => ({ id, text: q.options.find(o => o.id === id)?.text || '' }))
-
-    onUpdateQuestion(index, {
+    const updated = normalizeDraftOptionsAndKey({
       ...q,
-      options: baseOptions,
       correctOptionIds: next,
       answerKeyStatus: nextStatus,
       answerSource: 'manually-entered',
       answerVerification: nextStatus === 'verified' ? 'verified' : 'incomplete',
     })
+
+    onUpdateQuestion(index, updated)
   }
 
   const handleNumericalChange = (index: number, val: string) => {
@@ -359,7 +359,8 @@ export function AnswerKeyReviewScreen({
                         {!isNumerical ? (
                           <div className="key-options-group" role="group" aria-label={`Answer for Q${idx + 1}`}>
                             {['A', 'B', 'C', 'D'].map(optId => {
-                              const isSelected = q.correctOptionIds.includes(optId)
+                              const normalizedCorrect = q.correctOptionIds.map((id, i) => normalizeOptionId(id, i))
+                              const isSelected = normalizedCorrect.includes(optId)
                               return (
                                 <button
                                   key={optId}

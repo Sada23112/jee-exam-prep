@@ -24,6 +24,61 @@ export interface ImportSession {
   updatedAt: string
 }
 
+/**
+ * Normalizes option identifiers across numeric (1, 2, 3, 4) and alphabetic (A, B, C, D) formats.
+ */
+export function normalizeOptionId(id: string, index = 0): string {
+  const clean = id.trim().toUpperCase().replace(/^[([{<]+|[)\]}>]+$/g, '')
+  if (clean === '1' || clean === 'A') return 'A'
+  if (clean === '2' || clean === 'B') return 'B'
+  if (clean === '3' || clean === 'C') return 'C'
+  if (clean === '4' || clean === 'D') return 'D'
+  if (/^[A-Z]$/.test(clean)) return clean
+  return ['A', 'B', 'C', 'D'][index] || clean || 'A'
+}
+
+/**
+ * Normalizes draft options and correctOptionIds to standard A, B, C, D format.
+ */
+export function normalizeDraftOptionsAndKey(draft: ImportedQuestionDraft): ImportedQuestionDraft {
+  if (draft.type === 'numerical') {
+    return {
+      ...draft,
+      options: [],
+      correctOptionIds: [],
+    }
+  }
+
+  const baseOptions = draft.options.length > 0
+    ? draft.options
+    : ['A', 'B', 'C', 'D'].map(id => ({ id, text: '' }))
+
+  const normalizedOptions = baseOptions.map((opt, idx) => ({
+    ...opt,
+    id: normalizeOptionId(opt.id, idx),
+    text: opt.text.trim() || `(Option ${normalizeOptionId(opt.id, idx)})`,
+  }))
+
+  const seen = new Set<string>()
+  const dedupedOptions = normalizedOptions.filter((opt, idx) => {
+    if (seen.has(opt.id)) {
+      opt.id = ['A', 'B', 'C', 'D'][idx] || `OPT${idx + 1}`
+    }
+    seen.add(opt.id)
+    return true
+  })
+
+  const normalizedCorrectOptionIds = draft.correctOptionIds
+    .map((id, idx) => normalizeOptionId(id, idx))
+    .filter(Boolean)
+
+  return {
+    ...draft,
+    options: dedupedOptions,
+    correctOptionIds: normalizedCorrectOptionIds,
+  }
+}
+
 export function createEmptyImportedQuestion(
   sourcePageNumber = 1,
   sourceQuestionNumber = '',
@@ -112,11 +167,11 @@ export function validateQuestionStructure(draft: ImportedQuestionDraft): {
     if (emptyOptions.length > 0) {
       errors.push(`Options ${emptyOptions.map(o => o.id).join(', ')} cannot be empty.`)
     }
-    // Check that any selected correct options exist in options
+    // Check that any selected correct options exist in options (normalizing 1->A, 2->B, etc.)
     if (draft.options.length > 0 && draft.correctOptionIds.length > 0) {
-      const optionIds = new Set(draft.options.map(o => o.id.trim().toUpperCase().replace(/^[([{<]+|[)\]}>]+$/g, '')))
+      const optionIds = new Set(draft.options.map((o, idx) => normalizeOptionId(o.id, idx)))
       const missing = draft.correctOptionIds
-        .map(id => id.trim().toUpperCase().replace(/^[([{<]+|[)\]}>]+$/g, ''))
+        .map((id, idx) => normalizeOptionId(id, idx))
         .filter(id => id && !optionIds.has(id))
       if (missing.length > 0) {
         errors.push(`Correct option ${missing.join(', ')} does not match any existing option ID.`)
@@ -194,12 +249,14 @@ export function validatePaperForFinalization(questions: ImportedQuestionDraft[])
 
   questions.forEach((q, idx) => {
     const qNum = q.sourceQuestionNumber || String(idx + 1)
-    const struct = validateQuestionStructure(q)
+    // Auto-normalize question draft before checking
+    const normalizedQ = normalizeDraftOptionsAndKey(q)
+    const struct = validateQuestionStructure(normalizedQ)
     if (!struct.valid) {
       structuralErrors.push({ index: idx, questionNumber: qNum, errors: struct.errors })
     }
 
-    const keyStatus = inferAnswerKeyStatus(q)
+    const keyStatus = inferAnswerKeyStatus(normalizedQ)
     if (keyStatus === 'verified') {
       verifiedCount++
     } else {
@@ -209,7 +266,7 @@ export function validatePaperForFinalization(questions: ImportedQuestionDraft[])
       unverifiedIssues.push({
         index: idx,
         questionNumber: qNum,
-        subject: q.subject,
+        subject: normalizedQ.subject,
         status: keyStatus,
         reason,
       })
@@ -235,8 +292,9 @@ export function toCleanQuestionDraft(
   draft: ImportedQuestionDraft,
   options?: { allowUngraded?: boolean },
 ): QuestionDraft {
-  const isNumerical = draft.type === 'numerical'
-  const keyStatus = inferAnswerKeyStatus(draft)
+  const normalized = normalizeDraftOptionsAndKey(draft)
+  const isNumerical = normalized.type === 'numerical'
+  const keyStatus = inferAnswerKeyStatus(normalized)
   const isAnswerVerified = keyStatus === 'verified'
 
   const answerVerification: VerificationState = isAnswerVerified
@@ -248,22 +306,22 @@ export function toCleanQuestionDraft(
   // Question verification is 'verified' only if both structure is verified AND answer is verified,
   // OR if the user explicitly chose to finalize with ungraded, it remains 'needs-review'
   const questionVerification: VerificationState =
-    draft.verification === 'verified' && isAnswerVerified
+    normalized.verification === 'verified' && isAnswerVerified
       ? 'verified'
-      : (options?.allowUngraded ? 'needs-review' : draft.verification)
+      : (options?.allowUngraded ? 'needs-review' : normalized.verification)
 
   let cleanOptions: Array<{ id: string; text: string }> = []
   let cleanCorrectOptionIds: string[] = []
 
   if (!isNumerical) {
     // 1. If options list is empty, initialize standard A, B, C, D
-    const baseOptions = draft.options.length > 0
-      ? draft.options
+    const baseOptions = normalized.options.length > 0
+      ? normalized.options
       : ['A', 'B', 'C', 'D'].map(id => ({ id, text: `(Option ${id})` }))
 
-    // 2. Standardize IDs (uppercase, stripped brackets) and ensure non-blank text
-    cleanOptions = baseOptions.map(o => {
-      const cleanId = o.id.trim().toUpperCase().replace(/^[([{<]+|[)\]}>]+$/g, '') || 'A'
+    // 2. Standardize IDs (uppercase, stripped brackets, 1-4 mapped to A-D) and ensure non-blank text
+    cleanOptions = baseOptions.map((o, idx) => {
+      const cleanId = normalizeOptionId(o.id, idx)
       const cleanText = o.text.trim() || `(Option ${cleanId})`
       return { id: cleanId, text: cleanText }
     })
@@ -276,9 +334,9 @@ export function toCleanQuestionDraft(
       return true
     })
 
-    // 4. Clean correctOptionIds
-    const rawCorrect = draft.correctOptionIds
-      .map(id => id.trim().toUpperCase().replace(/^[([{<]+|[)\]}>]+$/g, ''))
+    // 4. Clean correctOptionIds (mapped 1-4 to A-D)
+    const rawCorrect = normalized.correctOptionIds
+      .map((id, idx) => normalizeOptionId(id, idx))
       .filter(Boolean)
 
     // 5. GUARANTEE: Every correctOptionId MUST exist in cleanOptions!
@@ -305,34 +363,34 @@ export function toCleanQuestionDraft(
     cleanCorrectOptionIds = rawCorrect.filter(id => validOptionIds.has(id))
 
     // 8. If single-correct, ensure at most 1 correct option
-    if (draft.type === 'single-correct' && cleanCorrectOptionIds.length > 1) {
+    if (normalized.type === 'single-correct' && cleanCorrectOptionIds.length > 1) {
       cleanCorrectOptionIds = [cleanCorrectOptionIds[0]!]
     }
   }
 
   // Fallback for prompt if empty but has crops
-  const cleanPrompt = draft.prompt.trim() || (draft.assets.length > 0 ? '(Refer to attached question diagram)' : '')
+  const cleanPrompt = normalized.prompt.trim() || (normalized.assets.length > 0 ? '(Refer to attached question diagram)' : '')
 
   return {
-    subject: draft.subject,
-    type: draft.type,
-    chapter: draft.chapter,
-    topic: draft.topic,
-    year: draft.year,
-    session: draft.session,
-    difficulty: draft.difficulty,
+    subject: normalized.subject,
+    type: normalized.type,
+    chapter: normalized.chapter,
+    topic: normalized.topic,
+    year: normalized.year,
+    session: normalized.session,
+    difficulty: normalized.difficulty,
     prompt: cleanPrompt,
     options: cleanOptions,
     correctOptionIds: cleanCorrectOptionIds,
-    numericalAnswer: isNumerical ? draft.numericalAnswer.trim() : '',
-    numericalTolerance: isNumerical ? (draft.numericalTolerance.trim() || '0') : '',
-    solution: draft.solution,
+    numericalAnswer: isNumerical ? normalized.numericalAnswer.trim() : '',
+    numericalTolerance: isNumerical ? (normalized.numericalTolerance.trim() || '0') : '',
+    solution: normalized.solution,
     verification: questionVerification,
     answerVerification,
-    notes: draft.notes,
-    sourceLabel: draft.sourceLabel,
-    sourceQuestionNumber: draft.sourceQuestionNumber,
-    assets: draft.assets.map(a => ({
+    notes: normalized.notes,
+    sourceLabel: normalized.sourceLabel,
+    sourceQuestionNumber: normalized.sourceQuestionNumber,
+    assets: normalized.assets.map(a => ({
       assetId: a.assetId,
       role: a.role,
       pageNumber: a.pageNumber,

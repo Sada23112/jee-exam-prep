@@ -1,4 +1,5 @@
 import type { ImportSession } from '../domain/import-session'
+import { normalizeDraftOptionsAndKey } from '../domain/import-session'
 
 const DB_NAME = 'jee_cbt_importer_cache'
 const DB_VERSION = 1
@@ -38,9 +39,14 @@ export async function saveActiveImportSession(
   fileBuffer?: ArrayBuffer | null,
 ): Promise<void> {
   try {
+    const normalizedSession: ImportSession = {
+      ...session,
+      questions: session.questions.map(normalizeDraftOptionsAndKey),
+    }
+
     // 1. Save metadata / session JSON to localStorage for instantaneous synchronous access
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(session))
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(normalizedSession))
     }
 
     // 2. Save session + document buffer to IndexedDB
@@ -49,7 +55,7 @@ export async function saveActiveImportSession(
       const tx = db.transaction(STORE_NAME, 'readwrite')
       const store = tx.objectStore(STORE_NAME)
 
-      store.put(session, 'active_session')
+      store.put(normalizedSession, 'active_session')
       if (fileBuffer) {
         store.put(fileBuffer, 'active_document_buffer')
       }
@@ -81,6 +87,7 @@ export async function loadActiveImportSession(): Promise<CachedImportData | null
         const fileBuffer = (bufferReq.result as ArrayBuffer | undefined) || null
 
         if (session && Array.isArray(session.questions) && session.questions.length > 0) {
+          session.questions = session.questions.map(normalizeDraftOptionsAndKey)
           resolve({
             session,
             fileBuffer,
@@ -103,6 +110,7 @@ export async function loadActiveImportSession(): Promise<CachedImportData | null
       if (stored) {
         const session = JSON.parse(stored) as ImportSession
         if (session && Array.isArray(session.questions) && session.questions.length > 0) {
+          session.questions = session.questions.map(normalizeDraftOptionsAndKey)
           return {
             session,
             fileBuffer: null,
@@ -122,11 +130,14 @@ export async function loadActiveImportSession(): Promise<CachedImportData | null
         const stored = localStorage.getItem(LOCAL_STORAGE_KEY)
         if (stored) {
           const session = JSON.parse(stored) as ImportSession
-          return {
-            session,
-            fileBuffer: null,
-            fileName: session.fileName,
-            fileType: session.fileType,
+          if (session && Array.isArray(session.questions) && session.questions.length > 0) {
+            session.questions = session.questions.map(normalizeDraftOptionsAndKey)
+            return {
+              session,
+              fileBuffer: null,
+              fileName: session.fileName,
+              fileType: session.fileType,
+            }
           }
         }
       }

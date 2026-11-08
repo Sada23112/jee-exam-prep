@@ -13,6 +13,7 @@ import {
   createEmptyImportedQuestion,
   toCleanQuestionDraft,
   inferAnswerKeyStatus,
+  normalizeDraftOptionsAndKey,
 } from '../domain/import-session'
 import type { ParsedAnswerItem } from '../domain/answer-key-parser'
 import {
@@ -352,33 +353,27 @@ export function QuestionImporterPage() {
     const updated = session.questions.map(q => {
       const qNum = q.sourceQuestionNumber.trim()
       const answer = map.get(qNum)
-      if (!answer) return q
+      if (!answer) return normalizeDraftOptionsAndKey(q)
 
       matchedCount++
       if (q.type === 'numerical' && answer.numericalValue !== null) {
-        return {
+        return normalizeDraftOptionsAndKey({
           ...q,
           numericalAnswer: answer.numericalValue,
           answerKeyStatus: 'needs-correction' as const, // Must be reviewed, not auto-verified!
           answerSource: 'provided-answer-key' as const,
           answerVerification: 'needs-review' as const,
-        }
+        })
       } else if (q.type !== 'numerical' && answer.optionIds.length > 0) {
-        // Ensure options exists and contains standard options if empty
-        const baseOptions = q.options.length >= 2
-          ? q.options
-          : ['A', 'B', 'C', 'D'].map(id => ({ id, text: q.options.find(o => o.id === id)?.text || '' }))
-
-        return {
+        return normalizeDraftOptionsAndKey({
           ...q,
-          options: baseOptions,
           correctOptionIds: answer.optionIds,
           answerKeyStatus: 'needs-correction' as const, // Must be reviewed, not auto-verified!
           answerSource: 'provided-answer-key' as const,
           answerVerification: 'needs-review' as const,
-        }
+        })
       }
-      return q
+      return normalizeDraftOptionsAndKey(q)
     })
 
     setSession({ ...session, questions: updated })
@@ -393,16 +388,19 @@ export function QuestionImporterPage() {
     if (!session) return
     let count = 0
     const updated = session.questions.map(q => {
-      const hasKey = q.type === 'numerical' ? q.numericalAnswer.trim().length > 0 : q.correctOptionIds.length > 0
+      const normalized = normalizeDraftOptionsAndKey(q)
+      const hasKey = normalized.type === 'numerical'
+        ? normalized.numericalAnswer.trim().length > 0
+        : normalized.correctOptionIds.length > 0
       if (hasKey) {
         count++
         return {
-          ...q,
+          ...normalized,
           answerKeyStatus: 'verified' as const,
           answerVerification: 'verified' as const,
         }
       }
-      return q
+      return normalized
     })
 
     setSession({ ...session, questions: updated })
@@ -496,7 +494,13 @@ export function QuestionImporterPage() {
             <button
               type="button"
               className="button button-primary btn-finalize-action"
-              onClick={() => setIsFinalizeModalOpen(true)}
+              onClick={() => {
+                setSession({
+                  ...session,
+                  questions: session.questions.map(normalizeDraftOptionsAndKey),
+                })
+                setIsFinalizeModalOpen(true)
+              }}
             >
               Finalize Question Paper
             </button>
@@ -628,7 +632,7 @@ export function QuestionImporterPage() {
                 onSelectQuestion={idx => setActiveQuestionIndex(idx)}
                 onUpdateQuestion={(idx, updated) => {
                   const next = [...session.questions]
-                  next[idx] = updated
+                  next[idx] = normalizeDraftOptionsAndKey(updated)
                   setSession({ ...session, questions: next })
                 }}
                 onDeleteQuestion={idx => {
@@ -648,7 +652,13 @@ export function QuestionImporterPage() {
                   })
                   setActiveQuestionIndex(session.questions.length)
                 }}
-                onNavigateToAnswerKey={() => setWorkflowStep('answer-key')}
+                onNavigateToAnswerKey={() => {
+                  setSession({
+                    ...session,
+                    questions: session.questions.map(normalizeDraftOptionsAndKey),
+                  })
+                  setWorkflowStep('answer-key')
+                }}
               />
             </div>
           )}
@@ -659,13 +669,19 @@ export function QuestionImporterPage() {
               questions={session.questions}
               onUpdateQuestion={(idx, updated) => {
                 const next = [...session.questions]
-                next[idx] = updated
+                next[idx] = normalizeDraftOptionsAndKey(updated)
                 setSession({ ...session, questions: next })
               }}
               onBulkVerifyPopulated={handleBulkVerifyPopulated}
               onOpenAnswerKeyModal={() => setIsAnswerKeyModalOpen(true)}
               onClearAllKeys={handleClearAllKeys}
-              onFinalizePaper={() => setIsFinalizeModalOpen(true)}
+              onFinalizePaper={() => {
+                setSession({
+                  ...session,
+                  questions: session.questions.map(normalizeDraftOptionsAndKey),
+                })
+                setIsFinalizeModalOpen(true)
+              }}
               onReturnToQuestion={idx => {
                 setActiveQuestionIndex(idx)
                 setWorkflowStep('transcription')

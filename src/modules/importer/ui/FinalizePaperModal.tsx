@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { ImportedQuestionDraft } from '../domain/import-session'
-import { validatePaperForFinalization } from '../domain/import-session'
+import { validatePaperForFinalization, normalizeDraftOptionsAndKey } from '../domain/import-session'
 import { Dialog } from '../../../shared/ui/Dialog'
 import { Icon } from '../../../shared/ui/Icon'
 import { Notice } from '../../../shared/ui/Feedback'
@@ -43,7 +43,8 @@ export function FinalizePaperModal({
 
   if (!isOpen) return null
 
-  const report = validatePaperForFinalization(questions)
+  const normalizedQuestions = questions.map(normalizeDraftOptionsAndKey)
+  const report = validatePaperForFinalization(normalizedQuestions)
 
   const handleFinalize = async () => {
     setIsFinalizing(true)

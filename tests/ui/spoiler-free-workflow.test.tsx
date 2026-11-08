@@ -9,11 +9,13 @@ import {
   validateQuestionStructure,
   validatePaperForFinalization,
   toCleanQuestionDraft,
+  normalizeDraftOptionsAndKey,
   type ImportedQuestionDraft,
 } from '../../src/modules/importer/domain/import-session'
+import { saveActiveImportSession, loadActiveImportSession } from '../../src/modules/importer/application/session-cache'
 import { CBTQuestionArea } from '../../src/modules/exam-engine/ui/CBTQuestionArea'
 import { scoreExamAttempt } from '../../src/modules/results/domain/scoring'
-import type { Question } from '../../src/modules/question-bank/domain/question'
+import { questionDraftSchema, type Question } from '../../src/modules/question-bank/domain/question'
 import type { ExamPreset } from '../../src/modules/exam-engine/domain/preset'
 
 describe('Spoiler-Free Question Import & Dedicated Answer Key Review Workflow', () => {
@@ -325,5 +327,85 @@ describe('Examination Mode: Strict Answer Concealment', () => {
     expect(report.evaluations[0]!.status).toBe('ungraded')
     expect(report.evaluations[0]!.marksAwarded).toBe(0)
     expect(report.evaluations[0]!.correctAnswerText).toBe('Unverified / Not authoritative')
+  })
+
+  it('reconciles coaching materials with numeric options 1, 2, 3, 4 and letter keys A, B, C, D seamlessly', () => {
+    // Allen / coaching paper with options (1), (2), (3), (4)
+    const draft = createEmptyImportedQuestion(1, '1', 'Physics')
+    draft.prompt = 'Given below are two statements: Statement I and Statement II.'
+    draft.options = [
+      { id: '1', text: 'Both (A) and (R) are true' },
+      { id: '2', text: '(A) is true but (R) is false' },
+      { id: '3', text: '(A) is false but (R) is true' },
+      { id: '4', text: 'Both (A) and (R) are false' },
+    ]
+    // Answer key entered as 'A' (option 1)
+    draft.correctOptionIds = ['A']
+    draft.answerKeyStatus = 'verified'
+    draft.answerVerification = 'verified'
+    draft.verification = 'verified'
+
+    // 1. Structure validation must pass without reporting "does not match existing option ID"
+    const validation = validateQuestionStructure(draft)
+    expect(validation.valid).toBe(true)
+    expect(validation.errors).toHaveLength(0)
+
+    // 2. Normalizer should map 1->A, 2->B, 3->C, 4->D
+    const normalized = normalizeDraftOptionsAndKey(draft)
+    expect(normalized.options.map(o => o.id)).toEqual(['A', 'B', 'C', 'D'])
+    expect(normalized.correctOptionIds).toEqual(['A'])
+
+    // 3. Preflight finalization report must pass without structural errors
+    const report = validatePaperForFinalization([draft])
+    expect(report.canFinalize).toBe(true)
+    expect(report.structuralErrors).toHaveLength(0)
+    expect(report.verifiedCount).toBe(1)
+
+    // 4. toCleanQuestionDraft must produce a schema-compliant QuestionDraft
+    const cleanDraft = toCleanQuestionDraft(draft)
+    expect(cleanDraft.options.map(o => o.id)).toEqual(['A', 'B', 'C', 'D'])
+    expect(cleanDraft.correctOptionIds).toEqual(['A'])
+
+    // 5. Must pass full Zod refinement check without throwing
+    const parsed = questionDraftSchema.safeParse(cleanDraft)
+    expect(parsed.success).toBe(true)
+  })
+
+  it('preserves import session in storage across browser refreshes and auto-heals numeric options', async () => {
+    const draft = createEmptyImportedQuestion(1, '1', 'Physics')
+    draft.prompt = 'Mass of earth is $M$.'
+    draft.options = [
+      { id: '1', text: 'Opt 1' },
+      { id: '2', text: 'Opt 2' },
+      { id: '3', text: 'Opt 3' },
+      { id: '4', text: 'Opt 4' },
+    ]
+    draft.correctOptionIds = ['A']
+
+    const session = {
+      id: 'session-persist-test',
+      fileName: 'allen-test.pdf',
+      fileType: 'pdf' as const,
+      totalPages: 2,
+      pageAssetIds: {},
+      questions: [draft],
+      rawAnswerKey: '',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+
+    // Save session
+    await saveActiveImportSession(session)
+
+    // Load session
+    const loaded = await loadActiveImportSession()
+    expect(loaded).not.toBeNull()
+    expect(loaded?.session.fileName).toBe('allen-test.pdf')
+    expect(loaded?.session.questions).toHaveLength(1)
+
+    // Options must be auto-normalized to A, B, C, D upon restore
+    const restoredQ = loaded!.session.questions[0]!
+    expect(restoredQ.options.map(o => o.id)).toEqual(['A', 'B', 'C', 'D'])
+    expect(restoredQ.correctOptionIds).toEqual(['A'])
   })
 })
