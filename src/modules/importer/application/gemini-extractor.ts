@@ -194,11 +194,13 @@ export async function extractQuestionsWithGemini(options: {
       draft.numericalAnswer = raw.numericalAnswer || ''
     }
 
-    // AI extractions ALWAYS start in needs-review state
+    // AI extractions ALWAYS start in needs-review state — never automatically verified
     draft.verification = 'needs-review'
-    draft.answerVerification = draft.correctOptionIds.length > 0 || draft.numericalAnswer
-      ? 'needs-review'
-      : 'incomplete'
+    draft.answerVerification = 'needs-review'
+    draft.answerSource = 'ai-extracted'
+    draft.answerKeyStatus = draft.correctOptionIds.length > 0 || draft.numericalAnswer.trim()
+      ? 'needs-correction'
+      : 'missing'
 
     const flags: string[] = ['AI extracted: please verify formulas, options and answers against the original.']
     if (!draft.prompt) flags.push('Missing prompt text.')

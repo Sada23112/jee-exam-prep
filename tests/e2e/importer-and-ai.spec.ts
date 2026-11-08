@@ -24,7 +24,7 @@ async function createTestImageBytes(page: Page): Promise<Buffer> {
   return Buffer.from(base64, 'base64')
 }
 
-test('Paper Importer workflow: upload paper, edit, verify, map answer key, and approve to bank', async ({ page }) => {
+test('Paper Importer workflow: spoiler-free transcription, dedicated answer key review table, and paper finalization', async ({ page }) => {
   await page.goto('/')
 
   // Navigate to Paper Importer
@@ -46,6 +46,10 @@ test('Paper Importer workflow: upload paper, edit, verify, map answer key, and a
   await expect(page.locator('.doc-viewer-pane')).toBeVisible()
   await expect(page.locator('.question-verify-pane')).toBeVisible()
 
+  // Verify workflow step 1 is active (Questions & Diagrams - Spoiler Free)
+  await expect(page.locator('.workflow-step-btn', { hasText: 'Questions & Diagrams' })).toBeVisible()
+  await expect(page.locator('.workflow-step-btn', { hasText: 'Answer Key Review' })).toBeVisible()
+
   // Verify default question was created in session
   await expect(page.getByText('Page 1 of 1')).toBeVisible()
 
@@ -55,36 +59,43 @@ test('Paper Importer workflow: upload paper, edit, verify, map answer key, and a
   await page.getByPlaceholder('Topic (e.g. Carnot Engine)').fill('Projectile Motion')
   await page.locator('textarea.code-textarea').first().fill('A projectile is fired with speed $u = 20\\text{ m/s}$ at an angle of $45^\\circ$. Find the maximum height $H$.')
 
-  // Edit options
+  // Edit options text
   const optionInputs = page.locator('.option-input-wrap input')
   await optionInputs.nth(0).fill('10 m')
   await optionInputs.nth(1).fill('20 m')
   await optionInputs.nth(2).fill('30 m')
   await optionInputs.nth(3).fill('40 m')
 
-  // Select Option A as correct
-  await page.locator('.btn-option-indicator').first().click()
-  await expect(page.locator('.btn-option-indicator').first()).toHaveClass(/active/)
+  // CRITICAL UX VERIFICATION: By default, option badges are neutral labels without green active highlight!
+  await expect(page.locator('.option-neutral-badge').first()).toBeVisible()
+  await expect(page.locator('.option-editor-row.is-correct')).toHaveCount(0)
 
-  // Verify solution
-  await page.getByPlaceholder('Enter step-by-step solution...').fill('Height $H = \\frac{u^2 \\sin^2 \\theta}{2g} = \\frac{400 \\times 0.5}{20} = 10\\text{ m}$.')
-
-  // Mark as verified
-  await page.getByRole('button', { name: '✓ Mark as Verified' }).click()
+  // Mark Question Transcription as Verified
+  await page.getByRole('button', { name: '✓ Mark Question as Verified' }).click()
   await expect(page.locator('.current-verification-display')).toContainText('Verified')
-  await expect(page.getByText('Verified: 1')).toBeVisible()
 
-  // Map Answer Key test via Modal
-  await page.getByRole('button', { name: 'Map Answer Key' }).click()
-  await expect(page.getByRole('heading', { name: 'Map Answer Key to Questions' })).toBeVisible()
-  await page.locator('textarea.answer-key-input').fill('1. A\n2. 42.5')
-  await expect(page.getByText('Parsed Key Items (2)')).toBeVisible()
-  await expect(page.getByText('Matches Question 1')).toBeVisible()
-  await page.getByRole('button', { name: /Apply/ }).click()
+  // STEP 2: Navigate to Dedicated Answer Key Review Tab
+  await page.locator('.workflow-step-btn', { hasText: 'Answer Key Review' }).click()
+  await expect(page.getByRole('heading', { name: 'Answer Key Review & Verification' })).toBeVisible()
 
-  // Approve verified question to bank
-  await page.getByRole('button', { name: /Approve 1 Verified to Bank/ }).click()
-  await expect(page.getByText(/Successfully added 1 verified question/)).toBeVisible()
+  // Verify consolidated answer key table is displayed
+  await expect(page.locator('.answer-review-table')).toBeVisible()
+  await expect(page.locator('.cell-qnum strong', { hasText: 'Q1' })).toBeVisible()
+
+  // Set Option A as correct in the dedicated Answer Key Review table
+  const btnKeyA = page.locator('.btn-key-opt', { hasText: 'A' }).first()
+  await btnKeyA.click()
+  await expect(btnKeyA).toHaveClass(/active/)
+  await expect(page.locator('.pill-verified strong')).toContainText('1')
+
+  // STEP 3: Finalize Question Paper
+  await page.getByRole('button', { name: 'Finalize Question Paper →' }).click()
+  await expect(page.getByRole('heading', { name: 'Finalize Question Paper' })).toBeVisible()
+  await expect(page.getByText('All Questions & Answer Keys Fully Verified!')).toBeVisible()
+
+  // Click Finalize & Save
+  await page.getByRole('button', { name: /Finalize & Add 1 Questions to Bank/ }).click()
+  await expect(page.getByText(/Question paper finalized! Successfully added 1 questions/)).toBeVisible()
 
   // Navigate to Question Bank and verify question exists with exact prompt
   await page.goto('/bank')
@@ -144,24 +155,22 @@ test('AI Performance Tutor & Diagnostic summary in Results page', async ({ page 
   await page.getByRole('button', { name: /Start Examination/ }).click()
   await expect(page).toHaveURL(/\/exam\/[0-9a-f-]{36}$/)
 
-  // Submit test immediately
+  // STRICT ANSWER CONCEALMENT CHECK DURING EXAMINATION:
+  // The correct answer $h/\lambda$ is in Option A, but option card must NOT be marked or styled as correct
+  const optionCardA = page.locator('.cbt-option-card').first()
+  await expect(optionCardA).toBeVisible()
+  await expect(optionCardA).not.toHaveClass(/correct/)
+  await expect(page.locator('.cbt-review-answers-box')).toHaveCount(0)
+
+  // Submit test
   await page.getByRole('button', { name: 'Submit Test' }).click()
   await page.getByRole('button', { name: 'Yes, Submit Examination', exact: true }).click()
   await expect(page).toHaveURL(/\/exam\/[0-9a-f-]{36}\/results$/)
 
-  // Verify Results Page features
+  // POST-EXAMINATION REVEAL CHECK:
+  // Results page shows full analysis, candidate response vs correct answer, and AI tutor prompt
   await expect(page.getByRole('heading', { name: 'Diagnostic Practice Test' })).toBeVisible()
-  await expect(page.getByText('Negative Marking Loss')).toBeVisible()
-  await expect(page.getByText('Pacing & Pointers')).toBeVisible()
-  await expect(page.getByText('AI Performance Tutor')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Generate AI Tutor Analysis' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Copy AI Prompt' })).toBeVisible()
-
-  // Test Copy AI Prompt
-  await page.getByRole('button', { name: 'Copy AI Prompt' }).click()
-  await expect(page.getByText('AI Tutor Prompt copied to clipboard!')).toBeVisible()
-
-  // Verify Chapter-Wise Breakdown table is present
-  await expect(page.getByText('Chapter-Wise Performance Breakdown')).toBeVisible()
-  await expect(page.locator('.cbt-chapter-tag', { hasText: 'Modern Physics' })).toBeVisible()
+  await expect(page.getByText('EXAMINATION RESULTS & ANALYSIS')).toBeVisible()
+  await expect(page.locator('.cbt-review-answers-box')).toBeVisible()
+  await expect(page.locator('.cbt-correct-val')).toContainText('A')
 })

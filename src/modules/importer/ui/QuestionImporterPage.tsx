@@ -12,6 +12,7 @@ import {
   type ImportedQuestionDraft,
   createEmptyImportedQuestion,
   toCleanQuestionDraft,
+  inferAnswerKeyStatus,
 } from '../domain/import-session'
 import type { ParsedAnswerItem } from '../domain/answer-key-parser'
 import {
@@ -22,12 +23,15 @@ import { workspaceController } from '../../../app/workspace-state'
 import type { AssetRecord } from '../../../infrastructure/storage/assets'
 import { DocumentViewerPane } from './DocumentViewerPane'
 import { QuestionVerifyPane } from './QuestionVerifyPane'
+import { AnswerKeyReviewScreen } from './AnswerKeyReviewScreen'
 import { AnswerKeyModal } from './AnswerKeyModal'
+import { FinalizePaperModal } from './FinalizePaperModal'
 import { Icon } from '../../../shared/ui/Icon'
 import { Notice } from '../../../shared/ui/Feedback'
 
 export function QuestionImporterPage() {
   const [session, setSession] = useState<ImportSession | null>(null)
+  const [workflowStep, setWorkflowStep] = useState<'transcription' | 'answer-key'>('transcription')
   const [pdfDoc, setPdfDoc] = useState<LoadedPdfDocument | null>(null)
   const [currentPage, setCurrentPage] = useState<number>(1)
   const [pageCanvas, setPageCanvas] = useState<HTMLCanvasElement | null>(null)
@@ -35,6 +39,7 @@ export function QuestionImporterPage() {
   const [isLoadingDoc, setIsLoadingDoc] = useState<boolean>(false)
   const [statusMessage, setStatusMessage] = useState<{ kind: 'info' | 'success' | 'error'; text: string } | null>(null)
   const [isAnswerKeyModalOpen, setIsAnswerKeyModalOpen] = useState(false)
+  const [isFinalizeModalOpen, setIsFinalizeModalOpen] = useState(false)
   const [isAiExtracting, setIsAiExtracting] = useState(false)
   const [isAttachingPage, setIsAttachingPage] = useState(false)
 
@@ -74,7 +79,7 @@ export function QuestionImporterPage() {
         const doc = await loadPdfDocument(buffer)
         setPdfDoc(doc)
 
-        // Extract text from the first 5 pages or all pages if fewer
+        // Extract text from the first 10 pages or all pages if fewer
         const pagesToExtract = Math.min(doc.numPages, 10)
         const extractedPages: Array<{ pageNumber: number; text: string }> = []
 
@@ -105,11 +110,12 @@ export function QuestionImporterPage() {
         setSession(newSession)
         setCurrentPage(1)
         setActiveQuestionIndex(0)
+        setWorkflowStep('transcription')
         await renderPage(doc, 1)
 
         setStatusMessage({
           kind: 'info',
-          text: `Loaded PDF "${file.name}" (${doc.numPages} pages). Extracted ${parsedQuestions.length} draft question(s).`,
+          text: `Loaded PDF "${file.name}" (${doc.numPages} pages). Extracted ${parsedQuestions.length} draft question(s). Correct answers are concealed while editing questions.`,
         })
       } else if (file.type.startsWith('image/')) {
         // Direct image upload
@@ -147,10 +153,11 @@ export function QuestionImporterPage() {
         setSession(newSession)
         setCurrentPage(1)
         setActiveQuestionIndex(0)
+        setWorkflowStep('transcription')
 
         setStatusMessage({
           kind: 'info',
-          text: `Loaded image "${file.name}". You can crop diagrams and transcribe question details.`,
+          text: `Loaded image "${file.name}". Crop diagrams and transcribe questions without answer spoilers.`,
         })
       } else {
         throw new Error('Unsupported file format. Please upload a PDF or image (PNG, JPG, WebP).')
@@ -259,13 +266,13 @@ export function QuestionImporterPage() {
           text: `AI did not detect any questions on Page ${currentPage}.`,
         })
       } else {
-        // Merge extracted questions into session
+        // Merge extracted questions into session (they are marked needs-review and never auto-verified)
         const nextQuestions = [...session.questions, ...extracted]
         setSession({ ...session, questions: nextQuestions })
-        setActiveQuestionIndex(session.questions.length) // jump to first newly added
+        setActiveQuestionIndex(session.questions.length)
         setStatusMessage({
           kind: 'success',
-          text: `AI extracted ${extracted.length} question(s) from Page ${currentPage}. Review and verify them below.`,
+          text: `AI extracted ${extracted.length} question(s) from Page ${currentPage}. Answers remain concealed until reviewed.`,
         })
       }
     } catch (err) {
@@ -278,7 +285,7 @@ export function QuestionImporterPage() {
     }
   }
 
-  // Answer key mapping
+  // Apply parsed answer key to questions
   const handleApplyAnswerKey = (map: Map<string, ParsedAnswerItem>) => {
     if (!session) return
     let matchedCount = 0
@@ -293,12 +300,40 @@ export function QuestionImporterPage() {
         return {
           ...q,
           numericalAnswer: answer.numericalValue,
-          answerVerification: 'verified' as const,
+          answerKeyStatus: 'needs-correction' as const, // Must be reviewed, not auto-verified!
+          answerSource: 'provided-answer-key' as const,
+          answerVerification: 'needs-review' as const,
         }
       } else if (q.type !== 'numerical' && answer.optionIds.length > 0) {
         return {
           ...q,
           correctOptionIds: answer.optionIds,
+          answerKeyStatus: 'needs-correction' as const, // Must be reviewed, not auto-verified!
+          answerSource: 'provided-answer-key' as const,
+          answerVerification: 'needs-review' as const,
+        }
+      }
+      return q
+    })
+
+    setSession({ ...session, questions: updated })
+    setStatusMessage({
+      kind: 'info',
+      text: `Applied answer key: matched ${matchedCount} question(s). Inspect and verify them in the Answer Key Review tab.`,
+    })
+  }
+
+  // Bulk verify populated keys
+  const handleBulkVerifyPopulated = () => {
+    if (!session) return
+    let count = 0
+    const updated = session.questions.map(q => {
+      const hasKey = q.type === 'numerical' ? q.numericalAnswer.trim().length > 0 : q.correctOptionIds.length > 0
+      if (hasKey) {
+        count++
+        return {
+          ...q,
+          answerKeyStatus: 'verified' as const,
           answerVerification: 'verified' as const,
         }
       }
@@ -308,36 +343,42 @@ export function QuestionImporterPage() {
     setSession({ ...session, questions: updated })
     setStatusMessage({
       kind: 'success',
-      text: `Applied answer key: matched ${matchedCount} question(s).`,
+      text: `Marked ${count} question(s) with populated answers as Verified.`,
     })
   }
 
-  // Approve verified questions and save to database
-  const handleApproveVerified = async () => {
+  // Clear all answers
+  const handleClearAllKeys = () => {
     if (!session) return
-    const verified = session.questions.filter(q => q.verification === 'verified')
-    if (verified.length === 0) {
-      alert('There are no verified questions in this session yet.\n\nMark questions as "Verified" on the right pane once their prompt and answer keys are confirmed.')
-      return
-    }
+    if (!confirm('Clear all answer keys in this session back to unassigned?')) return
+    const updated = session.questions.map(q => ({
+      ...q,
+      correctOptionIds: [],
+      numericalAnswer: '',
+      answerKeyStatus: 'missing' as const,
+      answerVerification: 'incomplete' as const,
+    }))
+    setSession({ ...session, questions: updated })
+    setStatusMessage({
+      kind: 'info',
+      text: 'Cleared all answer keys from current session questions.',
+    })
+  }
 
-    try {
-      const cleanDrafts = verified.map(toCleanQuestionDraft)
-      await workspaceController.saveQuestionsBatch(cleanDrafts)
-      // Keep only unverified questions in session
-      const remaining = session.questions.filter(q => q.verification !== 'verified')
-      setSession({ ...session, questions: remaining })
-      setActiveQuestionIndex(0)
-      setStatusMessage({
-        kind: 'success',
-        text: `Successfully added ${verified.length} verified question(s) to the Question Bank!`,
-      })
-    } catch (err) {
-      setStatusMessage({
-        kind: 'error',
-        text: `Failed to save questions: ${err instanceof Error ? err.message : String(err)}`,
-      })
-    }
+  // Finalize Paper Confirmation
+  const handleConfirmFinalize = async (allowUngraded: boolean) => {
+    if (!session) return
+    const cleanDrafts = session.questions.map(q => toCleanQuestionDraft(q, { allowUngraded }))
+    await workspaceController.saveQuestionsBatch(cleanDrafts)
+    const verifiedKeys = cleanDrafts.filter(q => q.answerVerification === 'verified').length
+    const ungraded = cleanDrafts.length - verifiedKeys
+
+    setSession(null)
+    setPageCanvas(null)
+    setStatusMessage({
+      kind: 'success',
+      text: `Question paper finalized! Successfully added ${cleanDrafts.length} questions to your Question Bank (${verifiedKeys} verified, ${ungraded} saved as ungraded).`,
+    })
   }
 
   // Clean up PDF document on unmount
@@ -351,31 +392,22 @@ export function QuestionImporterPage() {
 
   // Count summaries
   const totalCount = session?.questions.length ?? 0
-  const verifiedCount = session?.questions.filter(q => q.verification === 'verified').length ?? 0
-  const needsReviewCount = session?.questions.filter(q => q.verification === 'needs-review').length ?? 0
-  const incompleteCount = session?.questions.filter(q => q.verification === 'incomplete').length ?? 0
+  const questionVerifiedCount = session?.questions.filter(q => q.verification === 'verified').length ?? 0
+  const answerVerifiedCount = session?.questions.filter(q => inferAnswerKeyStatus(q) === 'verified').length ?? 0
 
   return (
     <section className="page question-importer-page">
       <div className="importer-header">
         <div className="header-titles">
-          <h1>Question & Paper Importer</h1>
+          <h1>Question &amp; Paper Importer</h1>
           <p>
-            Import PDF question papers, scanned documents, or images. Extract questions, crop diagrams,
-            map answer keys, and verify side-by-side.
+            Import PDF question papers or images. Transcribe questions spoiler-free, review answer keys
+            in a separate dedicated workflow, and finalize your paper for CBT practice.
           </p>
         </div>
 
         {session && (
           <div className="importer-header-actions">
-            <button
-              type="button"
-              className="button button-secondary"
-              onClick={() => setIsAnswerKeyModalOpen(true)}
-            >
-              <Icon name="check" size={16} />
-              <span>Map Answer Key</span>
-            </button>
             <button
               type="button"
               className="button button-secondary"
@@ -388,17 +420,24 @@ export function QuestionImporterPage() {
             </button>
             <button
               type="button"
-              className="button button-primary"
-              onClick={handleApproveVerified}
-              disabled={verifiedCount === 0}
+              className="button button-secondary"
+              onClick={() => setIsAnswerKeyModalOpen(true)}
             >
-              Approve {verifiedCount} Verified to Bank
+              <Icon name="check" size={16} />
+              <span>Map Answer Key</span>
+            </button>
+            <button
+              type="button"
+              className="button button-primary btn-finalize-action"
+              onClick={() => setIsFinalizeModalOpen(true)}
+            >
+              Finalize Question Paper
             </button>
             <button
               type="button"
               className="button button-secondary"
               onClick={() => {
-                if (confirm('Close and discard this import session? Any questions not approved to bank will be lost.')) {
+                if (confirm('Close and discard this import session? Any questions not saved to bank will be lost.')) {
                   setSession(null)
                   setPageCanvas(null)
                 }
@@ -445,85 +484,129 @@ export function QuestionImporterPage() {
           <div className="importer-features-grid">
             <div className="feature-card">
               <Icon name="shield" size={24} />
-              <h4>100% Local & Sovereign</h4>
+              <h4>Spoiler-Free Import</h4>
               <p>
-                PDFs, page images, and cropped diagrams are processed and stored locally in your browser IndexedDB.
-              </p>
-            </div>
-            <div className="feature-card">
-              <Icon name="search" size={24} />
-              <h4>Diagram Crop Tool</h4>
-              <p>
-                Click and drag on any formula, circuit diagram, or graph to crop and attach it directly to questions.
+                Transcribe questions and attach diagrams without spoiling answers. Correct options and solutions remain concealed by default.
               </p>
             </div>
             <div className="feature-card">
               <Icon name="check" size={24} />
-              <h4>Authoritative Key Gate</h4>
+              <h4>Dedicated Answer Key Review</h4>
               <p>
-                Questions must be verified by you before entering the question bank. Unverified answers are never graded.
+                Verify and edit answers in a separate consolidated screen, comparing against your booklet or PDF without viewing question prompts.
+              </p>
+            </div>
+            <div className="feature-card">
+              <Icon name="search" size={24} />
+              <h4>Finalize Question Paper</h4>
+              <p>
+                Preflight validation detects unverified or missing answers. Proceed with verified grading or clearly flagged ungraded practice.
               </p>
             </div>
           </div>
         </div>
       ) : (
         <div className="importer-workspace">
-          {/* Status Bar */}
-          <div className="importer-status-bar">
-            <div className="file-info-badge">
-              <Icon name="bank" size={16} />
-              <span><strong>{session.fileName}</strong> ({session.totalPages} pages)</span>
+          {/* Workflow Steps Switcher Bar */}
+          <div className="importer-workflow-bar">
+            <div className="workflow-steps-group">
+              <button
+                type="button"
+                className={`workflow-step-btn ${workflowStep === 'transcription' ? 'active' : ''}`}
+                onClick={() => setWorkflowStep('transcription')}
+              >
+                <span className="step-num">1</span>
+                <span>Questions &amp; Diagrams (Spoiler-Free)</span>
+                <span className="step-counter">({questionVerifiedCount}/{totalCount} verified)</span>
+              </button>
+              <button
+                type="button"
+                className={`workflow-step-btn ${workflowStep === 'answer-key' ? 'active' : ''}`}
+                onClick={() => setWorkflowStep('answer-key')}
+              >
+                <span className="step-num">2</span>
+                <span>Answer Key Review &amp; Verification</span>
+                <span className="step-counter">({answerVerifiedCount}/{totalCount} verified)</span>
+              </button>
             </div>
-            <div className="counts-summary">
-              <span className="summary-pill total">Total: {totalCount}</span>
-              <span className="summary-pill verified">Verified: {verifiedCount}</span>
-              <span className="summary-pill review">Needs Review: {needsReviewCount}</span>
-              <span className="summary-pill incomplete">Incomplete: {incompleteCount}</span>
+
+            <div className="importer-status-bar-meta">
+              <div className="file-info-badge">
+                <Icon name="bank" size={14} />
+                <span><strong>{session.fileName}</strong> ({session.totalPages}p)</span>
+              </div>
             </div>
           </div>
 
-          {/* Split-Screen Workspace */}
-          <div className="split-workspace-grid">
-            {/* Left Pane: Document Viewer */}
-            <DocumentViewerPane
-              pageCanvas={pageCanvas}
-              currentPage={currentPage}
-              totalPages={session.totalPages}
-              onPageChange={handlePageChange}
-              onCropSaved={handleCropSaved}
-              onAttachWholePage={handleAttachWholePage}
-              isAttachingPage={isAttachingPage}
-            />
+          {/* Workflow Step 1: Questions & Diagrams */}
+          {workflowStep === 'transcription' && (
+            <div className="split-workspace-grid">
+              {/* Left Pane: Document Viewer */}
+              <DocumentViewerPane
+                pageCanvas={pageCanvas}
+                currentPage={currentPage}
+                totalPages={session.totalPages}
+                onPageChange={handlePageChange}
+                onCropSaved={handleCropSaved}
+                onAttachWholePage={handleAttachWholePage}
+                isAttachingPage={isAttachingPage}
+              />
 
-            {/* Right Pane: Question Verification */}
-            <QuestionVerifyPane
+              {/* Right Pane: Question Verification (Spoiler-Free) */}
+              <QuestionVerifyPane
+                questions={session.questions}
+                activeQuestionIndex={activeQuestionIndex}
+                onSelectQuestion={idx => setActiveQuestionIndex(idx)}
+                onUpdateQuestion={(idx, updated) => {
+                  const next = [...session.questions]
+                  next[idx] = updated
+                  setSession({ ...session, questions: next })
+                }}
+                onDeleteQuestion={idx => {
+                  const next = session.questions.filter((_, i) => i !== idx)
+                  setSession({ ...session, questions: next })
+                  setActiveQuestionIndex(Math.max(0, Math.min(idx, next.length - 1)))
+                }}
+                onAddQuestion={() => {
+                  const newQ = createEmptyImportedQuestion(
+                    currentPage,
+                    String(session.questions.length + 1),
+                    session.questions[activeQuestionIndex]?.subject ?? 'Physics',
+                  )
+                  setSession({
+                    ...session,
+                    questions: [...session.questions, newQ],
+                  })
+                  setActiveQuestionIndex(session.questions.length)
+                }}
+                onNavigateToAnswerKey={() => setWorkflowStep('answer-key')}
+              />
+            </div>
+          )}
+
+          {/* Workflow Step 2: Dedicated Answer Key Review */}
+          {workflowStep === 'answer-key' && (
+            <AnswerKeyReviewScreen
               questions={session.questions}
-              activeQuestionIndex={activeQuestionIndex}
-              onSelectQuestion={idx => setActiveQuestionIndex(idx)}
               onUpdateQuestion={(idx, updated) => {
                 const next = [...session.questions]
                 next[idx] = updated
                 setSession({ ...session, questions: next })
               }}
-              onDeleteQuestion={idx => {
-                const next = session.questions.filter((_, i) => i !== idx)
-                setSession({ ...session, questions: next })
-                setActiveQuestionIndex(Math.max(0, Math.min(idx, next.length - 1)))
+              onBulkVerifyPopulated={handleBulkVerifyPopulated}
+              onOpenAnswerKeyModal={() => setIsAnswerKeyModalOpen(true)}
+              onClearAllKeys={handleClearAllKeys}
+              onFinalizePaper={() => setIsFinalizeModalOpen(true)}
+              onReturnToQuestion={idx => {
+                setActiveQuestionIndex(idx)
+                setWorkflowStep('transcription')
               }}
-              onAddQuestion={() => {
-                const newQ = createEmptyImportedQuestion(
-                  currentPage,
-                  String(session.questions.length + 1),
-                  session.questions[activeQuestionIndex]?.subject ?? 'Physics',
-                )
-                setSession({
-                  ...session,
-                  questions: [...session.questions, newQ],
-                })
-                setActiveQuestionIndex(session.questions.length)
-              }}
+              pageCanvas={pageCanvas}
+              currentPage={currentPage}
+              totalPages={session.totalPages}
+              onPageChange={handlePageChange}
             />
-          </div>
+          )}
         </div>
       )}
 
@@ -534,6 +617,20 @@ export function QuestionImporterPage() {
           onClose={() => setIsAnswerKeyModalOpen(false)}
           questions={session.questions}
           onApplyAnswerKey={handleApplyAnswerKey}
+        />
+      )}
+
+      {/* Finalize Question Paper Modal */}
+      {session && (
+        <FinalizePaperModal
+          isOpen={isFinalizeModalOpen}
+          onClose={() => setIsFinalizeModalOpen(false)}
+          questions={session.questions}
+          onConfirmFinalize={handleConfirmFinalize}
+          onReturnToQuestion={idx => {
+            setActiveQuestionIndex(idx)
+            setWorkflowStep('transcription')
+          }}
         />
       )}
     </section>

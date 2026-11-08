@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { ImportedQuestionDraft } from '../domain/import-session'
 import type { Subject, QuestionType, VerificationState, Difficulty } from '../../question-bank/domain/question'
-import { validateImportedQuestionForBank } from '../domain/import-session'
+import { validateQuestionStructure } from '../domain/import-session'
 import { MathText } from '../../../shared/ui/MathText'
 import { AssetImage } from '../../../shared/ui/AssetImage'
 import { Icon } from '../../../shared/ui/Icon'
@@ -13,6 +13,7 @@ interface QuestionVerifyPaneProps {
   onUpdateQuestion: (index: number, updated: ImportedQuestionDraft) => void
   onDeleteQuestion: (index: number) => void
   onAddQuestion: () => void
+  onNavigateToAnswerKey?: () => void
 }
 
 export function QuestionVerifyPane({
@@ -22,8 +23,10 @@ export function QuestionVerifyPane({
   onUpdateQuestion,
   onDeleteQuestion,
   onAddQuestion,
+  onNavigateToAnswerKey,
 }: QuestionVerifyPaneProps) {
   const [activeTab, setActiveTab] = useState<'edit' | 'preview'>('edit')
+  const [showSpoilers, setShowSpoilers] = useState<boolean>(false)
 
   const current = questions[activeQuestionIndex]
   if (!current) {
@@ -37,7 +40,7 @@ export function QuestionVerifyPane({
     )
   }
 
-  const validation = validateImportedQuestionForBank(current)
+  const structureValidation = validateQuestionStructure(current)
 
   const updateField = <K extends keyof ImportedQuestionDraft>(field: K, value: ImportedQuestionDraft[K]) => {
     onUpdateQuestion(activeQuestionIndex, {
@@ -56,6 +59,8 @@ export function QuestionVerifyPane({
       onUpdateQuestion(activeQuestionIndex, {
         ...current,
         correctOptionIds: [optionId],
+        answerKeyStatus: 'verified',
+        answerSource: 'manually-entered',
         answerVerification: 'verified',
       })
     } else {
@@ -66,6 +71,8 @@ export function QuestionVerifyPane({
       onUpdateQuestion(activeQuestionIndex, {
         ...current,
         correctOptionIds: next,
+        answerKeyStatus: next.length > 0 ? 'verified' : 'missing',
+        answerSource: 'manually-entered',
         answerVerification: next.length > 0 ? 'verified' : 'incomplete',
       })
     }
@@ -78,14 +85,13 @@ export function QuestionVerifyPane({
 
   const handleSetVerification = (state: VerificationState) => {
     if (state === 'verified') {
-      if (!validation.valid) {
-        alert(`Cannot mark as verified:\n${validation.errors.join('\n')}`)
+      if (!structureValidation.valid) {
+        alert(`Cannot mark question transcription as verified:\n${structureValidation.errors.join('\n')}`)
         return
       }
       onUpdateQuestion(activeQuestionIndex, {
         ...current,
         verification: 'verified',
-        answerVerification: 'verified',
       })
     } else {
       updateField('verification', state)
@@ -154,18 +160,27 @@ export function QuestionVerifyPane({
               value={current.type}
               onChange={e => {
                 const nextType = e.target.value as QuestionType
-                updateField('type', nextType)
                 if (nextType === 'numerical') {
-                  updateField('options', [])
-                  updateField('correctOptionIds', [])
+                  onUpdateQuestion(activeQuestionIndex, {
+                    ...current,
+                    type: nextType,
+                    options: [],
+                    correctOptionIds: [],
+                  })
                 } else if (current.options.length === 0) {
-                  updateField('options', [
-                    { id: 'A', text: '' },
-                    { id: 'B', text: '' },
-                    { id: 'C', text: '' },
-                    { id: 'D', text: '' },
-                  ])
-                  updateField('numericalAnswer', '')
+                  onUpdateQuestion(activeQuestionIndex, {
+                    ...current,
+                    type: nextType,
+                    options: [
+                      { id: 'A', text: '' },
+                      { id: 'B', text: '' },
+                      { id: 'C', text: '' },
+                      { id: 'D', text: '' },
+                    ],
+                    numericalAnswer: '',
+                  })
+                } else {
+                  updateField('type', nextType)
                 }
               }}
               className="select-input"
@@ -237,22 +252,34 @@ export function QuestionVerifyPane({
           </div>
         )}
 
-        {/* Tab Switcher */}
+        {/* Tab Switcher & Spoiler Shield Controls */}
         <div className="verify-tab-bar">
-          <button
-            type="button"
-            className={`tab-btn ${activeTab === 'edit' ? 'active' : ''}`}
-            onClick={() => setActiveTab('edit')}
-          >
-            Edit Question
-          </button>
-          <button
-            type="button"
-            className={`tab-btn ${activeTab === 'preview' ? 'active' : ''}`}
-            onClick={() => setActiveTab('preview')}
-          >
-            LaTeX Preview
-          </button>
+          <div className="tab-buttons-group">
+            <button
+              type="button"
+              className={`tab-btn ${activeTab === 'edit' ? 'active' : ''}`}
+              onClick={() => setActiveTab('edit')}
+            >
+              Edit Question Text
+            </button>
+            <button
+              type="button"
+              className={`tab-btn ${activeTab === 'preview' ? 'active' : ''}`}
+              onClick={() => setActiveTab('preview')}
+            >
+              Exam LaTeX Preview
+            </button>
+          </div>
+          <div className="spoiler-shield-bar">
+            <button
+              type="button"
+              className={`button button-small ${showSpoilers ? 'button-secondary' : 'btn-spoiler-shield'}`}
+              onClick={() => setShowSpoilers(!showSpoilers)}
+              title={showSpoilers ? 'Conceal answers and solutions' : 'Reveal answer key and solution on this question'}
+            >
+              {showSpoilers ? '🛡️ Conceal Answers' : '👁️ Reveal Spoiler'}
+            </button>
+          </div>
         </div>
 
         {activeTab === 'edit' ? (
@@ -306,28 +333,52 @@ export function QuestionVerifyPane({
               </div>
             )}
 
-            {/* Options for Choice Questions */}
+            {/* Options for Choice Questions (Spoiler-Free by default) */}
             {current.type !== 'numerical' && (
               <div className="field-section">
                 <div className="section-header">
-                  <span className="section-title">Options & Correct Key</span>
-                  <span className="helper-text">
-                    Select the checkmark or radio on the left to set the correct answer.
-                  </span>
+                  <div>
+                    <span className="section-title">Options</span>
+                    <span className="helper-text" style={{ display: 'block' }}>
+                      {showSpoilers
+                        ? 'Click option badge to set correct key.'
+                        : 'Answers are concealed to protect test authenticity. Verify in Answer Key Review tab.'}
+                    </span>
+                  </div>
+                  {onNavigateToAnswerKey && (
+                    <button
+                      type="button"
+                      className="button button-small button-link"
+                      onClick={onNavigateToAnswerKey}
+                    >
+                      Open Answer Key Review →
+                    </button>
+                  )}
                 </div>
                 <div className="options-editor-list">
                   {current.options.map(option => {
                     const isCorrect = current.correctOptionIds.includes(option.id)
+                    const showCorrectness = showSpoilers && isCorrect
+
                     return (
-                      <div key={option.id} className={`option-editor-row ${isCorrect ? 'is-correct' : ''}`}>
-                        <button
-                          type="button"
-                          className={`btn-option-indicator ${isCorrect ? 'active' : ''}`}
-                          onClick={() => handleOptionCorrectToggle(option.id)}
-                          title={isCorrect ? 'Correct choice' : 'Click to mark as correct'}
-                        >
-                          {option.id}
-                        </button>
+                      <div
+                        key={option.id}
+                        className={`option-editor-row ${showCorrectness ? 'is-correct' : ''}`}
+                      >
+                        {showSpoilers ? (
+                          <button
+                            type="button"
+                            className={`btn-option-indicator ${isCorrect ? 'active' : ''}`}
+                            onClick={() => handleOptionCorrectToggle(option.id)}
+                            title={isCorrect ? 'Correct choice' : 'Click to mark as correct'}
+                          >
+                            {option.id}
+                          </button>
+                        ) : (
+                          <span className="option-neutral-badge" title="Option label">
+                            {option.id}
+                          </span>
+                        )}
                         <div className="option-input-wrap">
                           <input
                             type="text"
@@ -349,60 +400,103 @@ export function QuestionVerifyPane({
               </div>
             )}
 
-            {/* Numerical Answer */}
+            {/* Numerical Answer (Spoiler-Free by default) */}
             {current.type === 'numerical' && (
               <div className="field-section">
                 <div className="section-header">
-                  <span className="section-title">Numerical Key</span>
-                  <span className="helper-text">Finite decimal string format.</span>
+                  <div>
+                    <span className="section-title">Numerical Question</span>
+                    <span className="helper-text" style={{ display: 'block' }}>
+                      {showSpoilers
+                        ? 'Finite decimal string format.'
+                        : 'Answer value is concealed to prevent spoilers. Verify in Answer Key Review.'}
+                    </span>
+                  </div>
+                  {onNavigateToAnswerKey && (
+                    <button
+                      type="button"
+                      className="button button-small button-link"
+                      onClick={onNavigateToAnswerKey}
+                    >
+                      Open Answer Key Review →
+                    </button>
+                  )}
                 </div>
-                <div className="numerical-inputs-row">
-                  <label className="field-group">
-                    <span className="field-label">Correct Value</span>
-                    <input
-                      type="text"
-                      value={current.numericalAnswer}
-                      onChange={e => {
-                        updateField('numericalAnswer', e.target.value)
-                        if (e.target.value.trim()) {
-                          updateField('answerVerification', 'verified')
-                        }
-                      }}
-                      placeholder="e.g. 15.5 or -4"
-                      className="text-input"
-                    />
-                  </label>
-                  <label className="field-group">
-                    <span className="field-label">Tolerance (±)</span>
-                    <input
-                      type="text"
-                      value={current.numericalTolerance}
-                      onChange={e => updateField('numericalTolerance', e.target.value)}
-                      placeholder="0"
-                      className="text-input"
-                    />
-                  </label>
-                </div>
+
+                {showSpoilers ? (
+                  <div className="numerical-inputs-row">
+                    <label className="field-group">
+                      <span className="field-label">Correct Value</span>
+                      <input
+                        type="text"
+                        value={current.numericalAnswer}
+                        onChange={e => {
+                          const val = e.target.value
+                          onUpdateQuestion(activeQuestionIndex, {
+                            ...current,
+                            numericalAnswer: val,
+                            answerKeyStatus: val.trim() ? 'verified' : 'missing',
+                            answerSource: 'manually-entered',
+                            answerVerification: val.trim() ? 'verified' : 'incomplete',
+                          })
+                        }}
+                        placeholder="e.g. 15.5 or -4"
+                        className="text-input"
+                      />
+                    </label>
+                    <label className="field-group">
+                      <span className="field-label">Tolerance (±)</span>
+                      <input
+                        type="text"
+                        value={current.numericalTolerance}
+                        onChange={e => updateField('numericalTolerance', e.target.value)}
+                        placeholder="0"
+                        className="text-input"
+                      />
+                    </label>
+                  </div>
+                ) : (
+                  <div className="spoiler-shield-note">
+                    <Icon name="shield" size={16} />
+                    <span>
+                      Correct numerical value is stored internally and concealed to prevent spoilers during practice.
+                    </span>
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Solution & Explanation */}
+            {/* Solution & Explanation (Collapsed by default) */}
             <div className="field-section">
-              <div className="section-header">
-                <span className="section-title">Solution / Explanation</span>
-              </div>
-              <textarea
-                value={current.solution}
-                onChange={e => updateField('solution', e.target.value)}
-                placeholder="Enter step-by-step solution..."
-                rows={3}
-                className="code-textarea"
-              />
+              <details className="solution-spoiler-details" open={showSpoilers}>
+                <summary className="solution-spoiler-summary">
+                  <span className="section-title">Solution / Explanation</span>
+                  <span className="helper-text">(Click to view/edit explanation)</span>
+                </summary>
+                <div className="solution-spoiler-content">
+                  <textarea
+                    value={current.solution}
+                    onChange={e => updateField('solution', e.target.value)}
+                    placeholder="Enter step-by-step solution..."
+                    rows={3}
+                    className="code-textarea"
+                  />
+                  {current.solution && (
+                    <div className="inline-math-preview" style={{ marginTop: '6px' }}>
+                      <span className="preview-label">Solution Preview:</span>
+                      <MathText text={current.solution} />
+                    </div>
+                  )}
+                </div>
+              </details>
             </div>
           </>
         ) : (
           <div className="preview-mode-card">
-            <h3>Rendered Examination Preview</h3>
+            <div className="preview-mode-header">
+              <h3>Rendered Examination Preview</h3>
+              <small className="muted">Authentic student view (answers concealed)</small>
+            </div>
             <div className="cbt-question-preview">
               <div className="prompt-preview-block">
                 <MathText text={current.prompt || '*(No prompt text)*'} />
@@ -419,7 +513,7 @@ export function QuestionVerifyPane({
                   {current.options.map(option => (
                     <div
                       key={option.id}
-                      className={`option-preview-item ${current.correctOptionIds.includes(option.id) ? 'marked-correct' : ''}`}
+                      className={`option-preview-item ${showSpoilers && current.correctOptionIds.includes(option.id) ? 'marked-correct' : ''}`}
                     >
                       <span className="option-badge">{option.id}</span>
                       <MathText text={option.text || '*(Empty option)*'} />
@@ -428,11 +522,14 @@ export function QuestionVerifyPane({
                 </div>
               ) : (
                 <div className="numerical-preview-block">
-                  <strong>Answer: </strong> {current.numericalAnswer || 'Unspecified'} (Tolerance: ±{current.numericalTolerance || '0'})
+                  <span className="preview-label">Numerical input field will appear for candidate during examination.</span>
+                  {showSpoilers && (
+                    <small>Answer: {current.numericalAnswer || 'Unspecified'} (Tolerance: ±{current.numericalTolerance || '0'})</small>
+                  )}
                 </div>
               )}
 
-              {current.solution && (
+              {showSpoilers && current.solution && (
                 <div className="solution-preview-block">
                   <strong>Solution:</strong>
                   <MathText text={current.solution} />
@@ -445,7 +542,7 @@ export function QuestionVerifyPane({
         {/* Verification Status Banner & Action Buttons */}
         <div className="verify-footer-banner">
           <div className="current-verification-display">
-            <span>Status: </span>
+            <span>Question Transcription Status: </span>
             <strong className={`badge-status-${current.verification}`}>
               {current.verification === 'verified'
                 ? 'Verified'
@@ -461,7 +558,7 @@ export function QuestionVerifyPane({
               className={`button ${current.verification === 'verified' ? 'button-primary' : 'button-secondary'}`}
               onClick={() => handleSetVerification('verified')}
             >
-              ✓ Mark as Verified
+              ✓ Mark Question as Verified
             </button>
             <button
               type="button"
