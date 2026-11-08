@@ -19,6 +19,11 @@ import {
   extractQuestionsWithGemini,
   getStoredGeminiApiKey,
 } from '../application/gemini-extractor'
+import {
+  saveActiveImportSession,
+  loadActiveImportSession,
+  clearActiveImportSession,
+} from '../application/session-cache'
 import { workspaceController } from '../../../app/workspace-state'
 import type { AssetRecord } from '../../../infrastructure/storage/assets'
 import { DocumentViewerPane } from './DocumentViewerPane'
@@ -44,6 +49,7 @@ export function QuestionImporterPage() {
   const [isAttachingPage, setIsAttachingPage] = useState(false)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const cachedFileBufferRef = useRef<ArrayBuffer | null>(null)
 
   // Load and render a specific page of the active PDF
   const renderPage = useCallback(async (doc: LoadedPdfDocument, pageNum: number) => {
@@ -58,6 +64,51 @@ export function QuestionImporterPage() {
       })
     }
   }, [])
+
+  // Auto-restore cached session on mount so browser refresh never loses work
+  useEffect(() => {
+    let cancelled = false
+
+    async function restoreCachedSession() {
+      try {
+        const cached = await loadActiveImportSession()
+        if (cancelled || !cached || !cached.session) return
+
+        setSession(cached.session)
+        setCurrentPage(1)
+        setActiveQuestionIndex(0)
+        cachedFileBufferRef.current = cached.fileBuffer
+
+        if (cached.fileBuffer && cached.fileType === 'pdf') {
+          try {
+            const doc = await loadPdfDocument(cached.fileBuffer)
+            if (cancelled) return
+            setPdfDoc(doc)
+            await renderPage(doc, 1)
+          } catch (e) {
+            console.warn('Could not re-render cached PDF doc:', e)
+          }
+        }
+
+        setStatusMessage({
+          kind: 'info',
+          text: `Resumed active import session for "${cached.fileName}" (${cached.session.questions.length} questions). All questions, edits and answer keys were preserved across refresh.`,
+        })
+      } catch (err) {
+        console.warn('Could not restore cached import session:', err)
+      }
+    }
+
+    void restoreCachedSession()
+    return () => { cancelled = true }
+  }, [renderPage])
+
+  // Auto-save session whenever it updates
+  useEffect(() => {
+    if (session) {
+      void saveActiveImportSession(session, cachedFileBufferRef.current)
+    }
+  }, [session])
 
   // Handle page change
   const handlePageChange = async (newPage: number) => {
@@ -76,6 +127,7 @@ export function QuestionImporterPage() {
     try {
       if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
         const buffer = await file.arrayBuffer()
+        cachedFileBufferRef.current = buffer
         const doc = await loadPdfDocument(buffer)
         setPdfDoc(doc)
 
@@ -113,12 +165,17 @@ export function QuestionImporterPage() {
         setWorkflowStep('transcription')
         await renderPage(doc, 1)
 
+        await saveActiveImportSession(newSession, buffer)
+
         setStatusMessage({
           kind: 'info',
           text: `Loaded PDF "${file.name}" (${doc.numPages} pages). Extracted ${parsedQuestions.length} draft question(s). Correct answers are concealed while editing questions.`,
         })
       } else if (file.type.startsWith('image/')) {
         // Direct image upload
+        const buffer = await file.arrayBuffer()
+        cachedFileBufferRef.current = buffer
+
         const img = new Image()
         const url = URL.createObjectURL(file)
         await new Promise<void>((resolve, reject) => {
@@ -154,6 +211,8 @@ export function QuestionImporterPage() {
         setCurrentPage(1)
         setActiveQuestionIndex(0)
         setWorkflowStep('transcription')
+
+        await saveActiveImportSession(newSession, buffer)
 
         setStatusMessage({
           kind: 'info',
@@ -266,7 +325,7 @@ export function QuestionImporterPage() {
           text: `AI did not detect any questions on Page ${currentPage}.`,
         })
       } else {
-        // Merge extracted questions into session (they are marked needs-review and never auto-verified)
+        // Merge extracted questions into session (marked needs-review, never auto-verified)
         const nextQuestions = [...session.questions, ...extracted]
         setSession({ ...session, questions: nextQuestions })
         setActiveQuestionIndex(session.questions.length)
@@ -305,8 +364,14 @@ export function QuestionImporterPage() {
           answerVerification: 'needs-review' as const,
         }
       } else if (q.type !== 'numerical' && answer.optionIds.length > 0) {
+        // Ensure options exists and contains standard options if empty
+        const baseOptions = q.options.length >= 2
+          ? q.options
+          : ['A', 'B', 'C', 'D'].map(id => ({ id, text: q.options.find(o => o.id === id)?.text || '' }))
+
         return {
           ...q,
+          options: baseOptions,
           correctOptionIds: answer.optionIds,
           answerKeyStatus: 'needs-correction' as const, // Must be reviewed, not auto-verified!
           answerSource: 'provided-answer-key' as const,
@@ -370,6 +435,8 @@ export function QuestionImporterPage() {
     if (!session) return
     const cleanDrafts = session.questions.map(q => toCleanQuestionDraft(q, { allowUngraded }))
     await workspaceController.saveQuestionsBatch(cleanDrafts)
+    await clearActiveImportSession()
+    cachedFileBufferRef.current = null
     const verifiedKeys = cleanDrafts.filter(q => q.answerVerification === 'verified').length
     const ungraded = cleanDrafts.length - verifiedKeys
 
@@ -436,8 +503,10 @@ export function QuestionImporterPage() {
             <button
               type="button"
               className="button button-secondary"
-              onClick={() => {
+              onClick={async () => {
                 if (confirm('Close and discard this import session? Any questions not saved to bank will be lost.')) {
+                  await clearActiveImportSession()
+                  cachedFileBufferRef.current = null
                   setSession(null)
                   setPageCanvas(null)
                 }

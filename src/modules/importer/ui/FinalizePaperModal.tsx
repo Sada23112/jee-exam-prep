@@ -13,6 +13,23 @@ interface FinalizePaperModalProps {
   onReturnToQuestion: (index: number) => void
 }
 
+function formatSaveError(error: unknown): string {
+  if (typeof error === 'string') return error
+  const msg = error instanceof Error ? error.message : String(error)
+  try {
+    const jsonMatch = msg.match(/\[\s*\{.*\}\s*\]/s)
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]) as Array<{ message?: string; path?: (string | number)[] }>
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return `Validation check: ${parsed.map(p => `${p.path ? `${p.path.join('.')}: ` : ''}${p.message || 'Invalid field'}`).join('; ')}`
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return msg
+}
+
 export function FinalizePaperModal({
   isOpen,
   onClose,
@@ -35,7 +52,7 @@ export function FinalizePaperModal({
       await onConfirmFinalize(confirmUngraded)
       onClose()
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : String(err))
+      setErrorMessage(formatSaveError(err))
     } finally {
       setIsFinalizing(false)
     }

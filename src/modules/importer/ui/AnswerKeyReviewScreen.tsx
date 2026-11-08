@@ -55,8 +55,13 @@ export function AnswerKeyReviewScreen({
     const nextOptionIds = isAlready ? [] : [optId]
     const nextStatus: AnswerKeyStatus = nextOptionIds.length > 0 ? 'verified' : 'missing'
 
+    const baseOptions = q.options.length >= 2
+      ? q.options
+      : ['A', 'B', 'C', 'D'].map(id => ({ id, text: q.options.find(o => o.id === id)?.text || '' }))
+
     onUpdateQuestion(index, {
       ...q,
+      options: baseOptions,
       correctOptionIds: nextOptionIds,
       answerKeyStatus: nextStatus,
       answerSource: 'manually-entered',
@@ -74,8 +79,13 @@ export function AnswerKeyReviewScreen({
 
     const nextStatus: AnswerKeyStatus = next.length > 0 ? 'verified' : 'missing'
 
+    const baseOptions = q.options.length >= 2
+      ? q.options
+      : ['A', 'B', 'C', 'D'].map(id => ({ id, text: q.options.find(o => o.id === id)?.text || '' }))
+
     onUpdateQuestion(index, {
       ...q,
+      options: baseOptions,
       correctOptionIds: next,
       answerKeyStatus: nextStatus,
       answerSource: 'manually-entered',

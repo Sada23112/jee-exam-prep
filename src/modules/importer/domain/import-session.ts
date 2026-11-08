@@ -112,6 +112,16 @@ export function validateQuestionStructure(draft: ImportedQuestionDraft): {
     if (emptyOptions.length > 0) {
       errors.push(`Options ${emptyOptions.map(o => o.id).join(', ')} cannot be empty.`)
     }
+    // Check that any selected correct options exist in options
+    if (draft.options.length > 0 && draft.correctOptionIds.length > 0) {
+      const optionIds = new Set(draft.options.map(o => o.id.trim().toUpperCase().replace(/^[([{<]+|[)\]}>]+$/g, '')))
+      const missing = draft.correctOptionIds
+        .map(id => id.trim().toUpperCase().replace(/^[([{<]+|[)\]}>]+$/g, ''))
+        .filter(id => id && !optionIds.has(id))
+      if (missing.length > 0) {
+        errors.push(`Correct option ${missing.join(', ')} does not match any existing option ID.`)
+      }
+    }
   }
 
   return {
@@ -219,7 +229,7 @@ export function validatePaperForFinalization(questions: ImportedQuestionDraft[])
 
 /**
  * Converts an imported draft into a clean QuestionDraft for storage.
- * Strips UI-only fields and sets proper verification states.
+ * Auto-repairs missing option references and guarantees schema conformance.
  */
 export function toCleanQuestionDraft(
   draft: ImportedQuestionDraft,
@@ -242,6 +252,67 @@ export function toCleanQuestionDraft(
       ? 'verified'
       : (options?.allowUngraded ? 'needs-review' : draft.verification)
 
+  let cleanOptions: Array<{ id: string; text: string }> = []
+  let cleanCorrectOptionIds: string[] = []
+
+  if (!isNumerical) {
+    // 1. If options list is empty, initialize standard A, B, C, D
+    const baseOptions = draft.options.length > 0
+      ? draft.options
+      : ['A', 'B', 'C', 'D'].map(id => ({ id, text: `(Option ${id})` }))
+
+    // 2. Standardize IDs (uppercase, stripped brackets) and ensure non-blank text
+    cleanOptions = baseOptions.map(o => {
+      const cleanId = o.id.trim().toUpperCase().replace(/^[([{<]+|[)\]}>]+$/g, '') || 'A'
+      const cleanText = o.text.trim() || `(Option ${cleanId})`
+      return { id: cleanId, text: cleanText }
+    })
+
+    // 3. Deduplicate options by ID
+    const seenIds = new Set<string>()
+    cleanOptions = cleanOptions.filter(o => {
+      if (seenIds.has(o.id)) return false
+      seenIds.add(o.id)
+      return true
+    })
+
+    // 4. Clean correctOptionIds
+    const rawCorrect = draft.correctOptionIds
+      .map(id => id.trim().toUpperCase().replace(/^[([{<]+|[)\]}>]+$/g, ''))
+      .filter(Boolean)
+
+    // 5. GUARANTEE: Every correctOptionId MUST exist in cleanOptions!
+    for (const corrId of rawCorrect) {
+      if (!seenIds.has(corrId)) {
+        cleanOptions.push({ id: corrId, text: `(Option ${corrId})` })
+        seenIds.add(corrId)
+      }
+    }
+
+    // 6. Guarantee at least 2 options for choice questions
+    if (cleanOptions.length < 2) {
+      for (const standardId of ['A', 'B', 'C', 'D']) {
+        if (!seenIds.has(standardId)) {
+          cleanOptions.push({ id: standardId, text: `(Option ${standardId})` })
+          seenIds.add(standardId)
+          if (cleanOptions.length >= 2) break
+        }
+      }
+    }
+
+    // 7. Ensure correctOptionIds only contains IDs that exist in cleanOptions
+    const validOptionIds = new Set(cleanOptions.map(o => o.id))
+    cleanCorrectOptionIds = rawCorrect.filter(id => validOptionIds.has(id))
+
+    // 8. If single-correct, ensure at most 1 correct option
+    if (draft.type === 'single-correct' && cleanCorrectOptionIds.length > 1) {
+      cleanCorrectOptionIds = [cleanCorrectOptionIds[0]!]
+    }
+  }
+
+  // Fallback for prompt if empty but has crops
+  const cleanPrompt = draft.prompt.trim() || (draft.assets.length > 0 ? '(Refer to attached question diagram)' : '')
+
   return {
     subject: draft.subject,
     type: draft.type,
@@ -250,11 +321,11 @@ export function toCleanQuestionDraft(
     year: draft.year,
     session: draft.session,
     difficulty: draft.difficulty,
-    prompt: draft.prompt,
-    options: isNumerical ? [] : draft.options.map(o => ({ id: o.id, text: o.text })),
-    correctOptionIds: isNumerical ? [] : [...draft.correctOptionIds],
-    numericalAnswer: isNumerical ? draft.numericalAnswer : '',
-    numericalTolerance: isNumerical ? draft.numericalTolerance : '',
+    prompt: cleanPrompt,
+    options: cleanOptions,
+    correctOptionIds: cleanCorrectOptionIds,
+    numericalAnswer: isNumerical ? draft.numericalAnswer.trim() : '',
+    numericalTolerance: isNumerical ? (draft.numericalTolerance.trim() || '0') : '',
     solution: draft.solution,
     verification: questionVerification,
     answerVerification,

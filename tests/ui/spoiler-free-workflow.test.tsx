@@ -138,6 +138,32 @@ describe('Spoiler-Free Question Import & Dedicated Answer Key Review Workflow', 
     expect(cleanQ2.verification).toBe('needs-review')
     expect(cleanQ2.answerVerification).toBe('incomplete')
   })
+
+  it('auto-repairs options when correctOptionIds is mapped to a question with empty options, preventing schema error', () => {
+    // This matches the exact case where a scanned PDF initially has no options, but an answer key (e.g. 'B') is mapped
+    const scannedDraft = createEmptyImportedQuestion(1, '3', 'Physics')
+    scannedDraft.prompt = 'Calculate the acceleration due to gravity on a planet.'
+    scannedDraft.options = [] // empty options from scan!
+    scannedDraft.correctOptionIds = ['B'] // mapped from answer key
+    scannedDraft.answerKeyStatus = 'verified'
+    scannedDraft.answerVerification = 'verified'
+    scannedDraft.verification = 'verified'
+
+    const clean = toCleanQuestionDraft(scannedDraft)
+
+    // clean options must have been auto-populated with A, B, C, D
+    expect(clean.options.length).toBeGreaterThanOrEqual(2)
+    const optionIds = new Set(clean.options.map(o => o.id))
+
+    // Every correct option MUST reference an existing option!
+    expect(clean.correctOptionIds).toEqual(['B'])
+    expect(optionIds.has('B')).toBe(true)
+
+    // Option texts must not be empty strings
+    clean.options.forEach(opt => {
+      expect(opt.text.trim().length).toBeGreaterThan(0)
+    })
+  })
 })
 
 describe('Examination Mode: Strict Answer Concealment', () => {
