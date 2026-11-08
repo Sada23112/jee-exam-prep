@@ -394,18 +394,28 @@ describe('Examination Mode: Strict Answer Concealment', () => {
       updatedAt: new Date().toISOString(),
     }
 
-    // Save session
-    await saveActiveImportSession(session)
+    const dummyBytes = new Uint8Array([37, 80, 68, 70, 45, 49, 46, 55]) // %PDF-1.7
+    const pdfBlob = new Blob([dummyBytes], { type: 'application/pdf' })
+
+    // Save session with Blob
+    await saveActiveImportSession(session, pdfBlob, 2)
 
     // Load session
     const loaded = await loadActiveImportSession()
     expect(loaded).not.toBeNull()
     expect(loaded?.session.fileName).toBe('allen-test.pdf')
     expect(loaded?.session.questions).toHaveLength(1)
+    expect(loaded?.currentPage).toBe(2)
+    expect(loaded?.fileBuffer).not.toBeNull()
+    expect(loaded?.fileBuffer?.byteLength).toBe(8)
 
     // Options must be auto-normalized to A, B, C, D upon restore
     const restoredQ = loaded!.session.questions[0]!
     expect(restoredQ.options.map(o => o.id)).toEqual(['A', 'B', 'C', 'D'])
     expect(restoredQ.correctOptionIds).toEqual(['A'])
+
+    // Re-loading again must also yield a valid non-detached buffer
+    const reloaded = await loadActiveImportSession()
+    expect(reloaded?.fileBuffer?.byteLength).toBe(8)
   })
 })

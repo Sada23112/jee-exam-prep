@@ -51,6 +51,7 @@ export function QuestionImporterPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cachedFileBufferRef = useRef<ArrayBuffer | null>(null)
+  const cachedBlobRef = useRef<Blob | null>(null)
 
   // Load and render a specific page of the active PDF
   const renderPage = useCallback(async (doc: LoadedPdfDocument, pageNum: number) => {
@@ -71,23 +72,45 @@ export function QuestionImporterPage() {
     let cancelled = false
 
     async function restoreCachedSession() {
+      setIsLoadingDoc(true)
       try {
         const cached = await loadActiveImportSession()
         if (cancelled || !cached || !cached.session) return
 
         setSession(cached.session)
-        setCurrentPage(1)
+        const targetPage = cached.currentPage && cached.currentPage <= cached.session.totalPages
+          ? cached.currentPage
+          : 1
+        setCurrentPage(targetPage)
         setActiveQuestionIndex(0)
         cachedFileBufferRef.current = cached.fileBuffer
 
-        if (cached.fileBuffer && cached.fileType === 'pdf') {
-          try {
-            const doc = await loadPdfDocument(cached.fileBuffer)
-            if (cancelled) return
-            setPdfDoc(doc)
-            await renderPage(doc, 1)
-          } catch (e) {
-            console.warn('Could not re-render cached PDF doc:', e)
+        if (cached.fileBuffer && cached.fileBuffer.byteLength > 0) {
+          if (cached.fileType === 'pdf') {
+            cachedBlobRef.current = new Blob([cached.fileBuffer.slice(0)], { type: 'application/pdf' })
+            try {
+              const doc = await loadPdfDocument(cached.fileBuffer)
+              if (cancelled) return
+              setPdfDoc(doc)
+              await renderPage(doc, targetPage)
+            } catch (e) {
+              console.warn('Could not re-render cached PDF doc:', e)
+            }
+          } else if (cached.fileType === 'image') {
+            cachedBlobRef.current = new Blob([cached.fileBuffer.slice(0)], { type: 'image/png' })
+            const url = URL.createObjectURL(cachedBlobRef.current)
+            const img = new Image()
+            img.onload = () => {
+              if (cancelled) return
+              const canvas = document.createElement('canvas')
+              canvas.width = img.naturalWidth
+              canvas.height = img.naturalHeight
+              const ctx = canvas.getContext('2d')
+              if (ctx) ctx.drawImage(img, 0, 0)
+              setPageCanvas(canvas)
+              URL.revokeObjectURL(url)
+            }
+            img.src = url
           }
         }
 
@@ -97,6 +120,8 @@ export function QuestionImporterPage() {
         })
       } catch (err) {
         console.warn('Could not restore cached import session:', err)
+      } finally {
+        setIsLoadingDoc(false)
       }
     }
 
@@ -107,9 +132,13 @@ export function QuestionImporterPage() {
   // Auto-save session whenever it updates
   useEffect(() => {
     if (session) {
-      void saveActiveImportSession(session, cachedFileBufferRef.current)
+      void saveActiveImportSession(
+        session,
+        cachedBlobRef.current || cachedFileBufferRef.current,
+        currentPage,
+      )
     }
-  }, [session])
+  }, [session, currentPage])
 
   // Handle page change
   const handlePageChange = async (newPage: number) => {
@@ -128,8 +157,9 @@ export function QuestionImporterPage() {
     try {
       if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
         const buffer = await file.arrayBuffer()
-        cachedFileBufferRef.current = buffer
-        const doc = await loadPdfDocument(buffer)
+        cachedBlobRef.current = file
+        cachedFileBufferRef.current = buffer.slice(0)
+        const doc = await loadPdfDocument(buffer.slice(0))
         setPdfDoc(doc)
 
         // Extract text from the first 10 pages or all pages if fewer
@@ -166,7 +196,7 @@ export function QuestionImporterPage() {
         setWorkflowStep('transcription')
         await renderPage(doc, 1)
 
-        await saveActiveImportSession(newSession, buffer)
+        await saveActiveImportSession(newSession, file, 1)
 
         setStatusMessage({
           kind: 'info',
@@ -174,8 +204,9 @@ export function QuestionImporterPage() {
         })
       } else if (file.type.startsWith('image/')) {
         // Direct image upload
+        cachedBlobRef.current = file
         const buffer = await file.arrayBuffer()
-        cachedFileBufferRef.current = buffer
+        cachedFileBufferRef.current = buffer.slice(0)
 
         const img = new Image()
         const url = URL.createObjectURL(file)
@@ -213,7 +244,7 @@ export function QuestionImporterPage() {
         setActiveQuestionIndex(0)
         setWorkflowStep('transcription')
 
-        await saveActiveImportSession(newSession, buffer)
+        await saveActiveImportSession(newSession, file, 1)
 
         setStatusMessage({
           kind: 'info',
@@ -226,6 +257,62 @@ export function QuestionImporterPage() {
       setStatusMessage({
         kind: 'error',
         text: err instanceof Error ? err.message : 'Could not open document.',
+      })
+    } finally {
+      setIsLoadingDoc(false)
+    }
+  }
+
+  // Handle re-attaching or replacing document file for an existing session
+  const handleReattachDocument = async (file: File) => {
+    if (!session) return
+    setIsLoadingDoc(true)
+    setStatusMessage(null)
+
+    try {
+      if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+        const buffer = await file.arrayBuffer()
+        cachedBlobRef.current = file
+        cachedFileBufferRef.current = buffer.slice(0)
+        const doc = await loadPdfDocument(buffer.slice(0))
+        setPdfDoc(doc)
+        const targetPage = Math.min(currentPage, doc.numPages)
+        setCurrentPage(targetPage)
+        await renderPage(doc, targetPage)
+        await saveActiveImportSession(session, file, targetPage)
+        setStatusMessage({
+          kind: 'success',
+          text: `Re-attached "${file.name}". Document preview restored. All ${session.questions.length} questions and verified keys remain intact.`,
+        })
+      } else if (file.type.startsWith('image/')) {
+        cachedBlobRef.current = file
+        const buffer = await file.arrayBuffer()
+        cachedFileBufferRef.current = buffer.slice(0)
+        const img = new Image()
+        const url = URL.createObjectURL(file)
+        await new Promise<void>((resolve, reject) => {
+          img.onload = () => resolve()
+          img.onerror = () => reject(new Error('Failed to load image file.'))
+          img.src = url
+        })
+        const canvas = document.createElement('canvas')
+        canvas.width = img.naturalWidth
+        canvas.height = img.naturalHeight
+        const ctx = canvas.getContext('2d')
+        if (ctx) ctx.drawImage(img, 0, 0)
+        URL.revokeObjectURL(url)
+        setPageCanvas(canvas)
+        setPdfDoc(null)
+        await saveActiveImportSession(session, file, 1)
+        setStatusMessage({
+          kind: 'success',
+          text: `Re-attached image "${file.name}". Preview restored.`,
+        })
+      }
+    } catch (err) {
+      setStatusMessage({
+        kind: 'error',
+        text: `Could not attach document: ${err instanceof Error ? err.message : String(err)}`,
       })
     } finally {
       setIsLoadingDoc(false)
@@ -462,6 +549,24 @@ export function QuestionImporterPage() {
 
   return (
     <section className="page question-importer-page">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".pdf,image/png,image/jpeg,image/webp"
+        style={{ display: 'none' }}
+        onChange={e => {
+          const f = e.target.files?.[0]
+          if (f) {
+            if (session) {
+              void handleReattachDocument(f)
+            } else {
+              void handleFileUpload(f)
+            }
+          }
+          e.target.value = ''
+        }}
+      />
+
       <div className="importer-header">
         <div className="header-titles">
           <h1>Question &amp; Paper Importer</h1>
@@ -542,16 +647,6 @@ export function QuestionImporterPage() {
             <button type="button" className="button button-primary" disabled={isLoadingDoc}>
               {isLoadingDoc ? 'Loading document…' : 'Select Paper File'}
             </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".pdf,image/png,image/jpeg,image/webp"
-              style={{ display: 'none' }}
-              onChange={e => {
-                const f = e.target.files?.[0]
-                if (f) void handleFileUpload(f)
-              }}
-            />
           </div>
 
           <div className="importer-features-grid">
@@ -623,13 +718,22 @@ export function QuestionImporterPage() {
                 onCropSaved={handleCropSaved}
                 onAttachWholePage={handleAttachWholePage}
                 isAttachingPage={isAttachingPage}
+                fileName={session.fileName}
+                isLoadingDoc={isLoadingDoc}
+                onReattachDocument={() => fileInputRef.current?.click()}
               />
 
               {/* Right Pane: Question Verification (Spoiler-Free) */}
               <QuestionVerifyPane
                 questions={session.questions}
                 activeQuestionIndex={activeQuestionIndex}
-                onSelectQuestion={idx => setActiveQuestionIndex(idx)}
+                onSelectQuestion={idx => {
+                  setActiveQuestionIndex(idx)
+                  const q = session.questions[idx]
+                  if (q && q.sourcePageNumber && q.sourcePageNumber !== currentPage) {
+                    void handlePageChange(q.sourcePageNumber)
+                  }
+                }}
                 onUpdateQuestion={(idx, updated) => {
                   const next = [...session.questions]
                   next[idx] = normalizeDraftOptionsAndKey(updated)

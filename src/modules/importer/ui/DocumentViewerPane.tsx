@@ -12,6 +12,9 @@ interface DocumentViewerPaneProps {
   onCropSaved: (asset: AssetRecord) => void
   onAttachWholePage: () => void
   isAttachingPage?: boolean
+  fileName?: string
+  isLoadingDoc?: boolean
+  onReattachDocument?: () => void
 }
 
 export function DocumentViewerPane({
@@ -22,6 +25,9 @@ export function DocumentViewerPane({
   onCropSaved,
   onAttachWholePage,
   isAttachingPage = false,
+  fileName,
+  isLoadingDoc = false,
+  onReattachDocument,
 }: DocumentViewerPaneProps) {
   const displayCanvasRef = useRef<HTMLCanvasElement>(null)
   const [zoom, setZoom] = useState<number>(1.0)
@@ -168,6 +174,16 @@ export function DocumentViewerPane({
         </div>
 
         <div className="viewer-actions">
+          {onReattachDocument && (
+            <button
+              type="button"
+              className="button button-secondary button-small"
+              onClick={onReattachDocument}
+              title="Re-attach or replace the PDF document file"
+            >
+              Re-attach PDF
+            </button>
+          )}
           <button
             type="button"
             className="button button-secondary button-small"
@@ -187,44 +203,73 @@ export function DocumentViewerPane({
       {cropError && <div className="crop-error-notice">{cropError}</div>}
 
       <div className="canvas-scroll-container">
-        <div
-          className="canvas-wrapper"
-          style={{
-            transform: `scale(${zoom})`,
-            transformOrigin: 'top center',
-          }}
-        >
-          <canvas
-            ref={displayCanvasRef}
-            className="source-document-canvas"
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-          />
-
-          {currentRect && (
-            <div className="crop-selection-box" style={getSelectionBoxStyle()}>
-              <div className="crop-toolbar">
-                <button
-                  type="button"
-                  className="button button-primary button-small crop-action-btn"
-                  onClick={handleCropSave}
-                  disabled={isCropping}
-                >
-                  {isCropping ? 'Cropping…' : 'Crop Diagram'}
-                </button>
-                <button
-                  type="button"
-                  className="button button-secondary button-small crop-action-btn"
-                  onClick={() => setCurrentRect(null)}
-                  disabled={isCropping}
-                >
-                  Cancel
-                </button>
-              </div>
+        {isLoadingDoc ? (
+          <div className="viewer-placeholder-card">
+            <div className="spinner" style={{ width: 28, height: 28, margin: '0 auto 12px auto' }} />
+            <p>Rendering document preview…</p>
+          </div>
+        ) : !pageCanvas ? (
+          <div className="viewer-placeholder-card">
+            <div className="placeholder-icon-wrap" style={{ marginBottom: 12 }}>
+              <Icon name="bank" size={32} />
             </div>
-          )}
-        </div>
+            <h4 style={{ margin: '0 0 8px 0', fontSize: 16 }}>Document Preview Not Loaded</h4>
+            <p style={{ margin: '0 0 8px 0', color: '#64748b', fontSize: 13, lineHeight: 1.5 }}>
+              Your {totalPages ? `${totalPages}-page session with all questions and verified answer keys` : 'questions and answer keys'} are safely preserved in browser memory.
+            </p>
+            <p style={{ margin: '0 0 16px 0', color: '#64748b', fontSize: 13, lineHeight: 1.5 }}>
+              To view, zoom, and crop diagrams from the PDF again, re-attach <strong>{fileName || 'the PDF document'}</strong>.
+            </p>
+            {onReattachDocument && (
+              <button
+                type="button"
+                className="button button-primary"
+                onClick={onReattachDocument}
+              >
+                Re-attach Document File
+              </button>
+            )}
+          </div>
+        ) : (
+          <div
+            className="canvas-wrapper"
+            style={{
+              transform: `scale(${zoom})`,
+              transformOrigin: 'top center',
+            }}
+          >
+            <canvas
+              ref={displayCanvasRef}
+              className="source-document-canvas"
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+            />
+
+            {currentRect && (
+              <div className="crop-selection-box" style={getSelectionBoxStyle()}>
+                <div className="crop-toolbar">
+                  <button
+                    type="button"
+                    className="button button-primary button-small crop-action-btn"
+                    onClick={handleCropSave}
+                    disabled={isCropping}
+                  >
+                    {isCropping ? 'Cropping…' : 'Crop Diagram'}
+                  </button>
+                  <button
+                    type="button"
+                    className="button button-secondary button-small crop-action-btn"
+                    onClick={() => setCurrentRect(null)}
+                    disabled={isCropping}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

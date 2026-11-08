@@ -28,8 +28,10 @@ export interface LoadedPdfDocument {
  * Loads a PDF document from an ArrayBuffer.
  */
 export async function loadPdfDocument(data: ArrayBuffer): Promise<LoadedPdfDocument> {
+  // Pass a cloned Uint8Array buffer so the caller's ArrayBuffer is never detached or transferred
+  const safeData = data.slice(0)
   const loadingTask = pdfjsLib.getDocument({
-    data: new Uint8Array(data),
+    data: new Uint8Array(safeData),
     useWorkerFetch: false,
     useSystemFonts: true,
   })
