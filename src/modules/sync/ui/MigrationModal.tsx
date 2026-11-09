@@ -46,10 +46,15 @@ export function MigrationModal() {
         p => setProgress(p),
       )
 
-      if (result.success) {
+      // Re-inspect unmigrated items to reflect real-time progress
+      const refreshed = await MigrationService.detectUnmigratedData()
+      setSummary(refreshed)
+
+      if (result.success || refreshed.totalCount === 0) {
         setCompleted(true)
       } else {
-        setErrorNotice(`Migration completed with ${result.errors.length} issue(s). Retry remaining records anytime.`)
+        const firstErr = result.errors[0] ? `: ${result.errors[0]}` : ''
+        setErrorNotice(`Migration completed with ${result.errors.length} issue(s)${firstErr}. Click 'Retry Migration' to continue.`)
       }
     } catch (err) {
       setErrorNotice(err instanceof Error ? err.message : 'Migration failed. Your local data remains safe.')
@@ -155,7 +160,7 @@ export function MigrationModal() {
                 disabled={migrating}
               >
                 <Icon name="upload" size={16} />
-                <span>{migrating ? 'Migrating…' : 'Migrate to Cloud Account'}</span>
+                <span>{migrating ? 'Migrating…' : errorNotice ? 'Retry Migration' : 'Migrate to Cloud Account'}</span>
               </button>
             </div>
           </>

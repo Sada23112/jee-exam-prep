@@ -353,7 +353,10 @@ service cloud.firestore {
     // Asset Metadata Document Validator
     function isValidAsset(data, assetId) {
       return data.keys().hasAll(['id', 'sha256', 'size', 'role']) &&
-        data.keys().hasOnly(['id', 'sha256', 'size', 'role', 'name', 'mimeType', 'width', 'height', 'ownerId', 'schemaVersion', 'createdAt']) &&
+        data.keys().hasOnly([
+          'id', 'sha256', 'size', 'role', 'name', 'mimeType', 'width', 'height',
+          'ownerId', 'schemaVersion', 'createdAt', 'storagePath', 'downloadUrl'
+        ]) &&
         data.id == assetId &&
         data.sha256 is string &&
         data.sha256.size() == 64 &&
@@ -368,7 +371,9 @@ service cloud.firestore {
         (!('height' in data) || (data.height is int && data.height >= 1 && data.height <= 40000000)) &&
         (!('schemaVersion' in data) || data.schemaVersion == 1) &&
         (!('ownerId' in data) || data.ownerId == null || (data.ownerId is string && data.ownerId.size() <= 128)) &&
-        (!('createdAt' in data) || isValidTimestampOrDateString(data.createdAt));
+        (!('createdAt' in data) || isValidTimestampOrDateString(data.createdAt)) &&
+        (!('storagePath' in data) || data.storagePath == null || (data.storagePath is string && data.storagePath.size() <= 1024)) &&
+        (!('downloadUrl' in data) || data.downloadUrl == null || (data.downloadUrl is string && data.downloadUrl.size() <= 4096));
     }
 
     // Setting Document Validator

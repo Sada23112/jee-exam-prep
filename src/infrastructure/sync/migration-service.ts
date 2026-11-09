@@ -172,11 +172,20 @@ export class MigrationService {
     for (const a of assets) {
       try {
         const updated = { ...a, ownerId: accountUuid }
-        // Upload blob to Storage
-        const { storagePath, downloadUrl } = await FirebaseStorageService.uploadAsset(userId, updated)
+        // Upload blob to Storage (resilient: local IndexedDB Blob is always preserved)
+        let storagePath: string | null = null
+        let downloadUrl: string | null = null
+        try {
+          const uploaded = await FirebaseStorageService.uploadAsset(userId, updated)
+          storagePath = uploaded.storagePath
+          downloadUrl = uploaded.downloadUrl
+        } catch (storageErr) {
+          console.warn(`Storage upload skipped for asset ${a.id} (offline blob retained):`, storageErr)
+        }
+
         // Save metadata to Firestore
         const docRef = doc(firestore, 'users', userId, 'assets', a.id)
-        const metadata = {
+        const metadata: Record<string, unknown> = {
           id: a.id,
           schemaVersion: 1,
           ownerId: accountUuid,
@@ -188,9 +197,10 @@ export class MigrationService {
           width: a.width,
           height: a.height,
           sha256: a.sha256,
-          storagePath,
-          downloadUrl,
         }
+        if (storagePath) metadata.storagePath = storagePath
+        if (downloadUrl) metadata.downloadUrl = downloadUrl
+
         await setDoc(docRef, metadata, { merge: true })
         await workspace.db.assets.put(updated)
       } catch (err) {

@@ -212,10 +212,19 @@ export class SyncService {
     } else if (item.collection === 'assets') {
       const record = await workspace.db.assets.get(item.recordId)
       if (record) {
-        // 1. Upload binary blob to Storage
-        const { storagePath, downloadUrl } = await FirebaseStorageService.uploadAsset(userId, record)
+        // 1. Upload binary blob to Storage (resilient fallback if Storage bucket not ready)
+        let storagePath: string | null = null
+        let downloadUrl: string | null = null
+        try {
+          const res = await FirebaseStorageService.uploadAsset(userId, record)
+          storagePath = res.storagePath
+          downloadUrl = res.downloadUrl
+        } catch (storageErr) {
+          console.warn(`Storage upload skipped for asset ${record.id} (offline blob retained):`, storageErr)
+        }
+
         // 2. Save metadata in Firestore
-        const metadataDoc = {
+        const metadataDoc: Record<string, unknown> = {
           id: record.id,
           schemaVersion: 1,
           ownerId: record.ownerId,
@@ -227,9 +236,9 @@ export class SyncService {
           width: record.width,
           height: record.height,
           sha256: record.sha256,
-          storagePath,
-          downloadUrl,
         }
+        if (storagePath) metadataDoc.storagePath = storagePath
+        if (downloadUrl) metadataDoc.downloadUrl = downloadUrl
         await setDoc(docRef, metadataDoc, { merge: true })
       }
     }
@@ -313,13 +322,18 @@ export class SyncService {
       lastSyncAt,
       async remoteAsset => {
         const local = await workspace.db.assets.get(remoteAsset.id)
-        if (!local) {
-          await FirebaseStorageService.downloadAndCacheAsset(userId, {
-            ...remoteAsset,
-            ownerId: accountUuid,
-          })
+        if (!local && remoteAsset.storagePath) {
+          try {
+            await FirebaseStorageService.downloadAndCacheAsset(userId, {
+              ...remoteAsset,
+              ownerId: accountUuid,
+            })
+          } catch (dlErr) {
+            console.warn(`Could not download remote asset ${remoteAsset.id}:`, dlErr)
+          }
         }
       },
+      'createdAt',
     )
 
     // Update lastSyncAt checkpoint
@@ -336,6 +350,7 @@ export class SyncService {
     collectionName: string,
     lastSyncAt: string | null,
     onRemoteItem: (item: T) => Promise<void>,
+    timestampField = 'updatedAt',
   ): Promise<void> {
     const firestore = getFirebaseFirestore()
     if (!firestore) return
@@ -343,7 +358,7 @@ export class SyncService {
     const colRef = collection(firestore, 'users', userId, collectionName)
     let q = query(colRef)
     if (lastSyncAt) {
-      q = query(colRef, where('updatedAt', '>', lastSyncAt))
+      q = query(colRef, where(timestampField, '>', lastSyncAt))
     }
 
     const snap = await getDocs(q)
