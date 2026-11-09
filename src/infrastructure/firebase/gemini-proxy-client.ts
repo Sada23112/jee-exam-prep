@@ -59,7 +59,7 @@ export async function executeGeminiRequest(options: GeminiRequestOptions): Promi
   const apiKey = options.apiKey || getStoredGeminiApiKey()
   if (!apiKey) {
     throw new Error(
-      'Gemini API key is not configured. Please sign in to use EXAMORA AI Cloud or configure your personal API key in Settings.',
+      'Gemini API key is not configured. Please sign in to use JEE CBT AI Cloud or configure your personal API key in Settings.',
     )
   }
 

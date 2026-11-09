@@ -132,10 +132,10 @@ export function AuthModal({ open, onClose, initialMode = 'signin' }: AuthModalPr
 
   const title =
     mode === 'signup'
-      ? 'Create your EXAMORA Account'
+      ? 'Create your JEE CBT Account'
       : mode === 'reset'
         ? 'Reset Account Password'
-        : 'Sign In to EXAMORA'
+        : 'Sign In to JEE CBT'
 
   return (
     <Dialog title={title} onClose={handleClose} busy={loading}>

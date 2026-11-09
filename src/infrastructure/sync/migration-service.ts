@@ -26,7 +26,34 @@ export class MigrationService {
    */
   static async detectUnmigratedData(): Promise<UnmigratedSummary> {
     try {
+      try {
+        try {
       await workspace.open()
+    } catch (openErr) {
+      if (openErr instanceof Error && openErr.message.includes('budget counters')) {
+        await workspace.repairBudget()
+        await workspace.open()
+      } else {
+        throw openErr
+      }
+    }
+      } catch (openErr) {
+        if (openErr instanceof Error && openErr.message.includes('budget counters')) {
+          await workspace.repairBudget()
+          try {
+      await workspace.open()
+    } catch (openErr) {
+      if (openErr instanceof Error && openErr.message.includes('budget counters')) {
+        await workspace.repairBudget()
+        await workspace.open()
+      } else {
+        throw openErr
+      }
+    }
+        } else {
+          throw openErr
+        }
+      }
       const [allQuestions, allCollections, allPresets, allHistory, allAssets] = await Promise.all([
         workspace.db.questions.toArray(),
         workspace.db.collections.toArray(),
@@ -80,7 +107,16 @@ export class MigrationService {
     const firestore = getFirebaseFirestore()
     if (!firestore) throw new Error('Firebase Firestore is not initialized.')
 
-    await workspace.open()
+    try {
+      await workspace.open()
+    } catch (openErr) {
+      if (openErr instanceof Error && openErr.message.includes('budget counters')) {
+        await workspace.repairBudget()
+        await workspace.open()
+      } else {
+        throw openErr
+      }
+    }
 
     const summary = await MigrationService.detectUnmigratedData()
     if (summary.totalCount === 0) {
@@ -217,6 +253,13 @@ export class MigrationService {
       value: now,
       updatedAt: now,
     })
+
+    // Re-align local database budget with updated ownership metadata
+    try {
+      await workspace.repairBudget()
+    } catch (budgetErr) {
+      console.warn('Could not recalculate budget after migration:', budgetErr)
+    }
 
     report('Migration complete!')
     return {

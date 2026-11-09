@@ -93,6 +93,28 @@ export class WorkspaceStore implements WorkspaceRepository {
     try { await this.opening } finally { this.opening = undefined }
   }
 
+  /**
+   * Recalculates workspace budget from actual stored records and updates metadata atomically.
+   */
+  async repairBudget(): Promise<WorkspaceData> {
+    return this.db.transaction('rw', this.db.tables, async () => {
+      const marker = await validateSchemaMarker(this.db)
+      const [questions, questionVersions, collections, presets, history, assets] = await Promise.all([
+        this.db.questions.toArray(),
+        this.db.questionVersions.toArray(),
+        this.db.collections.toArray(),
+        this.db.presets.toArray(),
+        this.db.history.toArray(),
+        this.db.assets.toArray(),
+      ])
+      const data = parseWorkspaceData({ questions, questionVersions, collections, presets, history, assets })
+      const actualBudget = calculateWorkspaceBudget(data, marker.budget.revision + 1)
+      assertWorkspaceBudget(actualBudget, this.limits)
+      await this.db.metadata.put({ ...marker, budget: actualBudget })
+      return data
+    })
+  }
+
   private async readSnapshot(): Promise<WorkspaceData> {
     await this.open()
     return this.db.transaction('r', this.db.tables, async () => {

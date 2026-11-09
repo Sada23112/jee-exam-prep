@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { NavLink, Outlet, Link, useLocation } from 'react-router-dom'
 import { useWorkspace } from './use-workspace'
 import { workspaceController } from './workspace-state'
+import { workspace } from '../infrastructure/storage/workspace'
 import { useAuth } from '../infrastructure/firebase/use-auth'
 import { syncService } from '../infrastructure/sync/sync-service'
 import { SyncIndicator } from '../modules/sync/ui/SyncIndicator'
@@ -115,7 +116,24 @@ export function AppShell() {
                 <strong>Workspace storage needs attention.</strong>
                 <p>{state.error}</p>
                 <p>No data was cleared. Close other app tabs or check browser storage permissions, then retry. Existing data may be stale; writes are unavailable until this is resolved.</p>
-                <button className="button button-secondary" onClick={() => { void workspaceController.refresh() }}>Retry storage</button>
+                <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
+                  <button className="button button-secondary" onClick={() => { void workspaceController.refresh() }}>Retry storage</button>
+                  {state.error.includes('budget counters') && (
+                    <button
+                      className="button button-primary"
+                      onClick={async () => {
+                        try {
+                          await workspace.repairBudget()
+                          void workspaceController.refresh()
+                        } catch (err) {
+                          console.error('Repair failed:', err)
+                        }
+                      }}
+                    >
+                      Repair workspace
+                    </button>
+                  )}
+                </div>
               </Notice>
             </div>
           )}

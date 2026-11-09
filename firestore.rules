@@ -208,7 +208,10 @@ service cloud.firestore {
     // Profile Document Validator
     function isValidProfile(data) {
       return data.keys().hasAll(['accountUuid', 'email', 'displayName', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['accountUuid', 'email', 'displayName', 'createdAt', 'updatedAt', 'id', 'schemaVersion']) &&
+        data.keys().hasOnly([
+          'accountUuid', 'email', 'displayName', 'createdAt', 'updatedAt',
+          'uid', 'photoURL', 'emailVerified', 'examPreferences', 'id', 'schemaVersion'
+        ]) &&
         data.accountUuid is string &&
         data.accountUuid.size() >= 32 &&
         data.accountUuid.size() <= 128 &&
@@ -218,6 +221,10 @@ service cloud.firestore {
         data.displayName.size() <= 100 &&
         isValidTimestampOrDateString(data.createdAt) &&
         isValidTimestampOrDateString(data.updatedAt) &&
+        (!('uid' in data) || (data.uid is string && data.uid.size() <= 128)) &&
+        (!('photoURL' in data) || data.photoURL == null || (data.photoURL is string && data.photoURL.size() <= 2048)) &&
+        (!('emailVerified' in data) || data.emailVerified is bool) &&
+        (!('examPreferences' in data) || data.examPreferences is map) &&
         (!('id' in data) || (data.id is string && data.id.size() <= 128)) &&
         (!('schemaVersion' in data) || data.schemaVersion == 1);
     }

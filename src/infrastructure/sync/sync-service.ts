@@ -124,7 +124,16 @@ export class SyncService {
     this.updateState({ status: 'syncing', errorMessage: null })
 
     try {
-      await workspace.open()
+      try {
+        await workspace.open()
+      } catch (openErr) {
+        if (openErr instanceof Error && openErr.message.includes('budget counters')) {
+          await workspace.repairBudget()
+          await workspace.open()
+        } else {
+          throw openErr
+        }
+      }
 
       // 1. Flush pending queue to cloud
       await this.flushPendingQueue(this.currentUserId)
@@ -343,6 +352,13 @@ export class SyncService {
       value: now,
       updatedAt: now,
     })
+
+    // Re-align local database budget with pulled changes
+    try {
+      await workspace.repairBudget()
+    } catch (budgetErr) {
+      console.warn('Could not recalculate budget after sync:', budgetErr)
+    }
   }
 
   private async pullCollection<T extends { id: string }>(

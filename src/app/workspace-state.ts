@@ -60,7 +60,17 @@ class WorkspaceController {
   async refresh(): Promise<void> {
     const generation = ++this.refreshGeneration
     try {
-      await workspace.open()
+      try {
+        await workspace.open()
+      } catch (openErr) {
+        if (openErr instanceof Error && openErr.message.includes('budget counters')) {
+          // Explicit compatible repair for budget drift (from metadata/cloud synchronization)
+          await workspace.repairBudget()
+          await workspace.open()
+        } else {
+          throw openErr
+        }
+      }
       const [questions, collections, presets, history] = await Promise.all([
         workspace.listQuestions(), workspace.listCollections(), workspace.listPresets(), workspace.listHistory(),
       ])
