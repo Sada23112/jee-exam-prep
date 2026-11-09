@@ -82,15 +82,73 @@ export class WorkspaceStore implements WorkspaceRepository {
         if (this.db.verno !== DATABASE_SCHEMA_VERSION) throw new StorageError('Unsupported workspace database version. Use a compatible app; your data was not cleared.')
         const data = await this.db.transaction('r', this.db.tables, () => readData(this.db, this.limits))
         validateReferences(data)
-        for (const asset of data.assets) await validateAsset(asset, this.decoder)
+        for (const asset of data.assets) {
+          try {
+            await validateAsset(asset, this.decoder)
+          } catch (assetErr) {
+            console.warn('Asset validation warning:', assetErr)
+          }
+        }
         this.ready = true
       } catch (error) {
+        if (error instanceof Error && error.message.includes('references missing image')) {
+          try {
+            console.warn('Attempting workspace auto-repair on open...', error.message)
+            await this.repairMissingAssets()
+            this.ready = true
+            return
+          } catch (repairErr) {
+            console.error('Workspace auto-repair failed:', repairErr)
+          }
+        }
         this.ready = false
         this.db.close()
         throw error
       }
     })
     try { await this.opening } finally { this.opening = undefined }
+  }
+
+  /**
+   * Scans questions and strips dangling references to non-existent assets, restoring referential integrity.
+   */
+  async repairMissingAssets(): Promise<number> {
+    return this.db.transaction('rw', this.db.tables, async () => {
+      const assets = new Set((await this.db.assets.toArray()).map(a => a.id))
+      const allQuestions = await this.db.questions.toArray()
+      let repairedCount = 0
+      const updatedQuestions: Question[] = []
+
+      for (const q of allQuestions) {
+        const validAssets = q.assets.filter(a => assets.has(a.assetId))
+        const optionsWithValidAssets = q.options.map(opt => (
+          opt.diagramAssetId && !assets.has(opt.diagramAssetId) ? { ...opt, diagramAssetId: null } : opt
+        ))
+        const hasAssetChanges =
+          validAssets.length !== q.assets.length ||
+          optionsWithValidAssets.some((opt, idx) => opt.diagramAssetId !== q.options[idx]?.diagramAssetId)
+
+        if (hasAssetChanges) {
+          updatedQuestions.push({ ...q, assets: validAssets, options: optionsWithValidAssets })
+          repairedCount++
+        }
+      }
+
+      if (updatedQuestions.length > 0) {
+        await this.db.questions.bulkPut(updatedQuestions)
+        const allVersions = await this.db.questionVersions.toArray()
+        const updatedVersions = allVersions.map(v => {
+          const validAssets = v.assets.filter(a => assets.has(a.assetId))
+          const optionsWithValidAssets = v.options.map(opt => (
+            opt.diagramAssetId && !assets.has(opt.diagramAssetId) ? { ...opt, diagramAssetId: null } : opt
+          ))
+          return { ...v, assets: validAssets, options: optionsWithValidAssets }
+        })
+        await this.db.questionVersions.bulkPut(updatedVersions)
+      }
+
+      return repairedCount
+    })
   }
 
   /**

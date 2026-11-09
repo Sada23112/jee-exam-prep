@@ -163,8 +163,8 @@ function checkQuestionAssets(questions: Question[], byId: ReadonlyMap<string, As
   for (const question of questions) {
     for (const reference of question.assets) {
       const asset = byId.get(reference.assetId)
-      if (!asset) throw new StorageError(`Question ${question.id} references missing image ${reference.assetId}.`)
-      if (asset.role !== reference.role) throw new StorageError(`Question ${question.id} image role does not match the preserved source image.`)
+      if (!asset) throw new StorageError('Question ' + question.id + ' references missing image ' + reference.assetId + '.')
+      if (asset.role !== reference.role) throw new StorageError('Question ' + question.id + ' image role does not match the preserved source image.')
     }
   }
 }

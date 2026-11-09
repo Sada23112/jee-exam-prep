@@ -1,13 +1,11 @@
 import * as pdfjsLib from 'pdfjs-dist'
+import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url'
 import { workspaceController } from '../../../app/workspace-state'
 import type { AssetRecord } from '../../../infrastructure/storage/assets'
 
-// Configure worker URL for Vite environment
+// Configure worker URL for Vite environment using Vite asset URL resolution
 if (typeof window !== 'undefined' && pdfjsLib.GlobalWorkerOptions) {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-    'pdfjs-dist/build/pdf.worker.mjs',
-    import.meta.url,
-  ).toString()
+  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker
 }
 
 export interface RenderedPdfPage {
@@ -103,6 +101,10 @@ export async function renderPdfPageToCanvas(
 
   const context = canvas.getContext('2d')
   if (!context) throw new Error('Could not get 2D canvas context.')
+
+  // Ensure canvas has an opaque white base background for scanned documents
+  context.fillStyle = '#ffffff'
+  context.fillRect(0, 0, canvas.width, canvas.height)
 
   await page.render({
     canvas,

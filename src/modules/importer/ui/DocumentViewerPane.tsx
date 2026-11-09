@@ -59,6 +59,8 @@ export function DocumentViewerPane({
     display.height = pageCanvas.height
     const ctx = display.getContext('2d')
     if (ctx) {
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, display.width, display.height)
       ctx.drawImage(pageCanvas, 0, 0)
     }
     // Clear any active crop selection when page changes

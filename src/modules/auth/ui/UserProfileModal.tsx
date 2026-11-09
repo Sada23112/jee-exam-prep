@@ -31,6 +31,15 @@ export function UserProfileModal({ open, onClose }: UserProfileModalProps) {
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const [statusNotice, setStatusNotice] = useState<{ kind: 'success' | 'error'; message: string } | null>(null)
 
+  const { isDragging: isDraggingAvatar, dropProps: avatarDropProps } = useFileDrop({
+    onFiles: files => {
+      const file = files[0]
+      if (file) void handleAvatarFile(file)
+    },
+    accept: ['image/png', 'image/jpeg', 'image/webp'],
+    disabled: uploadingAvatar,
+  })
+
   if (!open || !user) return null
 
   const handleAvatarFile = async (file: File) => {
@@ -56,14 +65,7 @@ export function UserProfileModal({ open, onClose }: UserProfileModalProps) {
     await handleAvatarFile(file)
   }
 
-  const { isDragging: isDraggingAvatar, dropProps: avatarDropProps } = useFileDrop({
-    onFiles: files => {
-      const file = files[0]
-      if (file) void handleAvatarFile(file)
-    },
-    accept: ['image/png', 'image/jpeg', 'image/webp'],
-    disabled: uploadingAvatar,
-  })
+
 
   const handleSubjectToggle = (subj: Subject) => {
     if (preferredSubjects.includes(subj)) {

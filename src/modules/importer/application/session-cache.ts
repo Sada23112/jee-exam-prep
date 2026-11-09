@@ -146,16 +146,24 @@ export async function loadActiveImportSession(): Promise<CachedImportData | null
 
       const sessionReq = store.get('active_session')
       const bufferReq = store.get('active_document_buffer')
+      const blobReq = store.get('active_document_blob')
       const pageReq = store.get('active_page_number')
 
-      tx.oncomplete = () => {
+      tx.oncomplete = async () => {
         const session = sessionReq.result as ImportSession | undefined
         const buffer = bufferReq.result as ArrayBuffer | undefined
+        const storedBlob = blobReq.result as Blob | undefined
         const page = typeof pageReq.result === 'number' ? pageReq.result : 1
 
         let fileBuffer: ArrayBuffer | null = null
         if (buffer && buffer.byteLength > 0) {
           fileBuffer = buffer.slice(0)
+        } else if (storedBlob && typeof storedBlob.size === 'number' && storedBlob.size > 0) {
+          try {
+            fileBuffer = await convertBlobToArrayBuffer(storedBlob)
+          } catch {
+            fileBuffer = null
+          }
         }
 
         if (session && Array.isArray(session.questions) && session.questions.length > 0) {

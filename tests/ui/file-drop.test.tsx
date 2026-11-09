@@ -18,7 +18,7 @@ describe('useFileDrop hook', () => {
         preventDefault: vi.fn(),
         stopPropagation: vi.fn(),
         dataTransfer: { items: [{ kind: 'file', type: 'application/pdf' }] },
-      } as any)
+      } as unknown as React.DragEvent)
     })
     expect(result.current.isDragging).toBe(true)
 
@@ -28,7 +28,7 @@ describe('useFileDrop hook', () => {
         preventDefault: vi.fn(),
         stopPropagation: vi.fn(),
         dataTransfer: { items: [{ kind: 'file', type: 'application/pdf' }] },
-      } as any)
+      } as unknown as React.DragEvent)
     })
     expect(result.current.isDragging).toBe(true)
 
@@ -37,7 +37,7 @@ describe('useFileDrop hook', () => {
       result.current.dropProps.onDragLeave({
         preventDefault: vi.fn(),
         stopPropagation: vi.fn(),
-      } as any)
+      } as unknown as React.DragEvent)
     })
     expect(result.current.isDragging).toBe(true)
 
@@ -46,7 +46,7 @@ describe('useFileDrop hook', () => {
       result.current.dropProps.onDragLeave({
         preventDefault: vi.fn(),
         stopPropagation: vi.fn(),
-      } as any)
+      } as unknown as React.DragEvent)
     })
     expect(result.current.isDragging).toBe(false)
   })
@@ -71,7 +71,7 @@ describe('useFileDrop hook', () => {
         dataTransfer: {
           files: [pdfFile, pngFile, txtFile],
         },
-      } as any)
+      } as unknown as React.DragEvent)
     })
 
     expect(onFiles).toHaveBeenCalledTimes(1)
@@ -93,7 +93,7 @@ describe('useFileDrop hook', () => {
         preventDefault: vi.fn(),
         stopPropagation: vi.fn(),
         dataTransfer: { items: [{ kind: 'file' }] },
-      } as any)
+      } as unknown as React.DragEvent)
     })
     expect(result.current.isDragging).toBe(false)
 
@@ -104,7 +104,7 @@ describe('useFileDrop hook', () => {
         dataTransfer: {
           files: [new File(['dummy'], 'test.pdf', { type: 'application/pdf' })],
         },
-      } as any)
+      } as unknown as React.DragEvent)
     })
     expect(onFiles).not.toHaveBeenCalled()
   })

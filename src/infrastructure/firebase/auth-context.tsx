@@ -49,14 +49,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const profileSnap = await getDoc(profileRef)
 
       const now = new Date().toISOString()
+      const fallbackEmail = firebaseUser.email && firebaseUser.email.includes('@')
+        ? firebaseUser.email
+        : `${firebaseUser.uid}@candidate.examora`
+      const safePhotoURL = firebaseUser.photoURL && firebaseUser.photoURL.length <= 2048
+        ? firebaseUser.photoURL
+        : null
+
       if (profileSnap.exists()) {
         const data = profileSnap.data() as Partial<AuthUserProfile>
         const mergedProfile: AuthUserProfile = {
           uid: firebaseUser.uid,
           accountUuid: data.accountUuid || accountUuid,
-          email: firebaseUser.email || data.email || '',
+          email: data.email || fallbackEmail,
           displayName: firebaseUser.displayName || data.displayName || 'Candidate',
-          photoURL: firebaseUser.photoURL || data.photoURL || null,
+          photoURL: safePhotoURL || data.photoURL || null,
           emailVerified: firebaseUser.emailVerified,
           createdAt: data.createdAt || now,
           updatedAt: now,
@@ -70,27 +77,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const newProfile: AuthUserProfile = {
           uid: firebaseUser.uid,
           accountUuid,
-          email: firebaseUser.email || '',
+          email: fallbackEmail,
           displayName: firebaseUser.displayName || 'Candidate',
-          photoURL: firebaseUser.photoURL || null,
+          photoURL: safePhotoURL,
           emailVerified: firebaseUser.emailVerified,
           createdAt: now,
           updatedAt: now,
           examPreferences: defaultExamPreferences,
         }
-        await setDoc(profileRef, newProfile)
+        try {
+          await setDoc(profileRef, newProfile)
+        } catch (setErr) {
+          console.warn('Could not write profile to Firestore (using local session profile):', setErr)
+        }
         setProfile(newProfile)
       }
     } catch (err) {
-      console.warn('Failed to fetch/save user profile in Firestore:', err)
+      console.warn('Firestore profile sync unavailable (permissions or rules not yet applied) - using local candidate profile:', err instanceof Error ? err.message : err)
       // Fallback local profile in memory
       const accountUuid = await getDeterministicAccountUuid(firebaseUser.uid)
+      const fallbackEmail = firebaseUser.email && firebaseUser.email.includes('@')
+        ? firebaseUser.email
+        : `${firebaseUser.uid}@candidate.examora`
+      const safePhotoURL = firebaseUser.photoURL && firebaseUser.photoURL.length <= 2048
+        ? firebaseUser.photoURL
+        : null
       setProfile({
         uid: firebaseUser.uid,
         accountUuid,
-        email: firebaseUser.email || '',
+        email: fallbackEmail,
         displayName: firebaseUser.displayName || 'Candidate',
-        photoURL: firebaseUser.photoURL || null,
+        photoURL: safePhotoURL,
         emailVerified: firebaseUser.emailVerified,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -238,7 +255,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         const profileRef = doc(firestore, 'users', user.uid, 'profile', 'main')
-        await setDoc(profileRef, nextProfile, { merge: true })
+        try {
+          await setDoc(profileRef, nextProfile, { merge: true })
+        } catch (setErr) {
+          console.warn('Could not persist profile update to Firestore (applied locally):', setErr)
+        }
         setProfile(nextProfile)
       }
     },

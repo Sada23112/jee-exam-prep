@@ -35,6 +35,15 @@ export function QuestionVerifyPane({
   const [activeTab, setActiveTab] = useState<'edit' | 'preview'>('edit')
   const [showSpoilers, setShowSpoilers] = useState<boolean>(false)
 
+  const { isDragging: isDraggingVerifyGallery, dropProps: verifyGalleryDropProps } = useFileDrop({
+    onFiles: async files => {
+      for (const f of files) {
+        await handleUploadNewDiagram(f)
+      }
+    },
+    accept: ['image/png', 'image/jpeg', 'image/webp'],
+  })
+
   const rawCurrent = questions[activeQuestionIndex]
   if (!rawCurrent) {
     return (
@@ -99,16 +108,13 @@ export function QuestionVerifyPane({
   }
 
   const handleAssignAssetToOption = (assetId: string, targetOptionId: string | 'prompt') => {
-    let nextOptions = current.options
-    if (targetOptionId === 'prompt') {
-      nextOptions = current.options.map(o => o.diagramAssetId === assetId ? { ...o, diagramAssetId: null } : o)
-    } else {
-      nextOptions = current.options.map(o => {
-        if (o.id === targetOptionId) return { ...o, diagramAssetId: assetId }
-        if (o.diagramAssetId === assetId) return { ...o, diagramAssetId: null }
-        return o
-      })
-    }
+    const nextOptions = targetOptionId === 'prompt'
+      ? current.options.map(o => o.diagramAssetId === assetId ? { ...o, diagramAssetId: null } : o)
+      : current.options.map(o => {
+          if (o.id === targetOptionId) return { ...o, diagramAssetId: assetId }
+          if (o.diagramAssetId === assetId) return { ...o, diagramAssetId: null }
+          return o
+        })
     updateField('options', nextOptions)
   }
 
@@ -145,14 +151,7 @@ export function QuestionVerifyPane({
     }
   }
 
-  const { isDragging: isDraggingVerifyGallery, dropProps: verifyGalleryDropProps } = useFileDrop({
-    onFiles: async files => {
-      for (const f of files) {
-        await handleUploadNewDiagram(f)
-      }
-    },
-    accept: ['image/png', 'image/jpeg', 'image/webp'],
-  })
+
 
   const handleSetVerification = (state: VerificationState) => {
     if (state === 'verified') {

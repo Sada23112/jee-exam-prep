@@ -248,4 +248,24 @@ describe('safe original image handling', () => {
     await expect(db.addImage(new File([png()], 'corrupt.png', { type: 'image/png' }), 'page')).rejects.toThrow(/bad pixels/i)
     expect(await db.db.assets.count()).toBe(0)
   })
+  it('auto-repairs missing question image references on open without locking workspace', async () => {
+    const dbName = `storage-repair-${crypto.randomUUID()}`
+    const db = store(dbName)
+    const q = await db.saveQuestion({ ...draft(), prompt: 'Question with diagram' })
+    expect(q.assets).toHaveLength(0)
+
+    // Simulate an orphaned asset reference (e.g. from cloud sync delta or aborted crop)
+    const missingAssetId = crypto.randomUUID()
+    await db.db.questions.update(q.id, { assets: [{ assetId: missingAssetId, role: 'diagram', pageNumber: null }] })
+    await db.db.questionVersions.update([q.id, 1], { assets: [{ assetId: missingAssetId, role: 'diagram', pageNumber: null }] })
+    await db.repairBudget()
+
+    // Close database and reopen; open() should detect the missing asset, auto-repair and open cleanly
+    db.db.close()
+    const reopened = store(dbName)
+    await expect(reopened.open()).resolves.toBeUndefined()
+    const questions = await reopened.listQuestions()
+    expect(questions).toHaveLength(1)
+    expect(questions[0]!.assets).toHaveLength(0) // Orphan reference was cleaned up
+  })
 })

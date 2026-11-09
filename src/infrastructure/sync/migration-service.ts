@@ -27,29 +27,15 @@ export class MigrationService {
   static async detectUnmigratedData(): Promise<UnmigratedSummary> {
     try {
       try {
-        try {
-      await workspace.open()
-    } catch (openErr) {
-      if (openErr instanceof Error && openErr.message.includes('budget counters')) {
-        await workspace.repairBudget()
         await workspace.open()
-      } else {
-        throw openErr
-      }
-    }
       } catch (openErr) {
-        if (openErr instanceof Error && openErr.message.includes('budget counters')) {
+        if (openErr instanceof Error && (
+          openErr.message.includes("budget") ||
+          openErr.message.includes("missing image")
+        )) {
+          await workspace.repairMissingAssets()
           await workspace.repairBudget()
-          try {
-      await workspace.open()
-    } catch (openErr) {
-      if (openErr instanceof Error && openErr.message.includes('budget counters')) {
-        await workspace.repairBudget()
-        await workspace.open()
-      } else {
-        throw openErr
-      }
-    }
+          await workspace.open()
         } else {
           throw openErr
         }
