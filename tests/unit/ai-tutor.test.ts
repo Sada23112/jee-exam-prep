@@ -173,4 +173,43 @@ describe('AI Tutor & Performance Diagnostics', () => {
     expect(prompt).toContain('Time Traps')
     expect(prompt).toContain('Q2')
   })
+
+  it('detects single-chapter topic test and adjusts directives accordingly', () => {
+    const singleChapQuestions = [q1, q2]
+    const singleChapReport: ExamScoreReport = {
+      ...mockReport,
+      totalQuestions: 2,
+      attempted: 2,
+      correct: 2,
+      incorrect: 0,
+      accuracyPercentage: 100,
+      evaluations: [
+        {
+          questionId: 'q-1',
+          subject: 'Physics',
+          status: 'correct',
+          marksAwarded: 4,
+          timeSpentMs: 60_000,
+          candidateAnswerText: 'A',
+          correctAnswerText: 'A',
+          isKeyVerified: true,
+        },
+        {
+          questionId: 'q-2',
+          subject: 'Physics',
+          status: 'correct',
+          marksAwarded: 4,
+          timeSpentMs: 50_000,
+          candidateAnswerText: 'B',
+          correctAnswerText: 'B',
+          isKeyVerified: true,
+        },
+      ],
+    }
+
+    const prompt = buildAiTutorPrompt(singleChapReport, singleChapQuestions, 'Gravitation Topic Drill')
+    expect(prompt).toContain('Single-Chapter Topic Test in Physics: Thermodynamics')
+    expect(prompt).toContain('100% accuracy on attempted questions')
+    expect(prompt).toContain('DO NOT lecture the student on untested chapters')
+  })
 })

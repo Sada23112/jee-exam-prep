@@ -30,9 +30,9 @@ export function SyncIndicator() {
   // If unauthenticated, show offline sovereign mode
   if (!user) {
     return (
-      <span className="local-indicator">
-        <span aria-hidden="true" style={{ background: 'var(--teal)' }} />
-        <span>Local sovereign storage</span>
+      <span className="local-indicator" title="Local sovereign storage active (offline-first)">
+        <span className="local-indicator-dot" aria-hidden="true" style={{ background: 'var(--teal)' }} />
+        <span className="local-indicator-text">Local storage</span>
       </span>
     )
   }

@@ -8,6 +8,7 @@ import {
   generateAiTutorAnalysis,
   buildAiTutorPrompt,
 } from '../../ai-tutor/application/tutor-service'
+import { AiTutorReportView } from '../../ai-tutor/ui/AiTutorReportView'
 import { MathText } from '../../../shared/ui/MathText'
 import { AssetImage } from '../../../shared/ui/AssetImage'
 import { Icon } from '../../../shared/ui/Icon'
@@ -121,7 +122,7 @@ export function ExamResultsPage() {
             Submitted on {new Date(exam.submittedAt ?? exam.updatedAt).toLocaleString()} · Preset: {exam.presetSnapshot.name}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '10px' }}>
+        <div className="page-heading-actions" style={{ display: 'flex', gap: '10px' }}>
           <Link to="/exam/new" className="button button-primary">
             <Icon name="plus" size={18} /> Take Another Test
           </Link>
@@ -219,9 +220,7 @@ export function ExamResultsPage() {
 
         {aiReport ? (
           <div className="ai-report-content">
-            <div className="ai-report-body" style={{ whiteSpace: 'pre-line', lineHeight: '1.6' }}>
-              {aiReport}
-            </div>
+            <AiTutorReportView reportText={aiReport} examName={exam.name} />
           </div>
         ) : (
           <div className="ai-tutor-placeholder">

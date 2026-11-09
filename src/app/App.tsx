@@ -35,7 +35,11 @@ export function AppShell() {
     syncService.setUser(user?.uid ?? null, profile?.accountUuid ?? null)
   }, [user, profile])
 
-  const label = navigation.find(item => item.to !== '/' && location.pathname.startsWith(item.to))?.label ?? 'Overview'
+  const label = location.pathname.startsWith('/exam/') && location.pathname.endsWith('/results')
+    ? 'Examination Results'
+    : location.pathname.startsWith('/exam')
+      ? 'Take Examination'
+      : navigation.find(item => item.to !== '/' && location.pathname.startsWith(item.to))?.label ?? 'Overview'
   const userInitial = (profile?.displayName || user?.displayName || user?.email?.split('@')[0] || 'Candidate')[0]?.toUpperCase() ?? 'U'
 
   return (
@@ -71,7 +75,7 @@ export function AppShell() {
         <header className="topbar">
           <span className="breadcrumb">Workspace <span aria-hidden="true">/</span> <strong>{label}</strong></span>
           
-          <div className="topbar-actions" style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div className="topbar-actions">
             <SyncIndicator />
 
             {user ? (
@@ -95,7 +99,7 @@ export function AppShell() {
             ) : (
               <button
                 type="button"
-                className="button button-primary button-small"
+                className="button button-primary button-small topbar-signin-btn"
                 onClick={() => setAuthModalOpen(true)}
               >
                 Sign in to sync
