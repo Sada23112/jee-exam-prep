@@ -2914,3 +2914,406 @@
   background: var(--teal);
   transition: width 0.25s ease;
 }
+
+/* ========================================================= */
+/* OPTION DIAGRAM & GRAPH ENHANCEMENTS                       */
+/* ========================================================= */
+.option-editor-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+.option-editor-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.option-editor-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+.option-text-label {
+  flex: 1;
+}
+.option-text-label textarea {
+  width: 100%;
+  resize: vertical;
+}
+.option-diagram-bar {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+.option-diagram-control-row {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+.option-diagram-attached {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.diagram-status-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--teal);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.option-diagram-actions,
+.option-diagram-add-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.btn-attach-diagram,
+.btn-option-diagram-upload {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.select-small {
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: #ffffff;
+  color: var(--ink);
+}
+.crop-assign-select {
+  font-size: 11px;
+  padding: 3px 6px;
+  max-width: 160px;
+}
+
+/* Compact Asset Image for inline options */
+.asset-compact-card {
+  display: inline-block;
+  max-width: 100%;
+}
+.asset-compact-image-wrapper {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+.asset-compact-image-wrapper img {
+  max-height: 200px;
+  max-width: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+  display: block;
+  background: #ffffff;
+}
+.asset-compact-remove {
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.image-loading-compact {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 6px 10px;
+  background: #f1f5f9;
+  border-radius: 4px;
+}
+
+/* CBT Interface & Review Option Diagrams */
+.cbt-option-diagram {
+  margin-top: 10px;
+  max-width: 100%;
+}
+.cbt-option-diagram img {
+  max-height: 240px;
+  max-width: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+  display: block;
+}
+.option-preview-item-wrap {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.option-preview-item-wrap:last-child {
+  border-bottom: none;
+}
+.option-preview-content {
+  flex: 1;
+}
+.option-diagram-container {
+  margin-top: 8px;
+}
+
+/* Question Editor / Importer Previews */
+.preview-options-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+.preview-option-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #ffffff;
+}
+.preview-option-body {
+  flex: 1;
+}
+.preview-option-diagram {
+  margin-top: 8px;
+}
+.option-preview-content-box {
+  flex: 1;
+}
+.option-preview-diagram-box {
+  margin-top: 8px;
+}
+
+/* Importer Crop Toolbar Option Buttons */
+.crop-opt-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 4px;
+}
+.crop-opt-label {
+  font-size: 11px;
+  color: #e2e8f0;
+  font-weight: 600;
+}
+.crop-opt-btn {
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  background: #334155;
+  color: #ffffff;
+  border-color: #475569;
+}
+.crop-opt-btn:hover {
+  background: var(--teal);
+  border-color: var(--teal);
+}
+
+/* Results Review Options */
+.cbt-review-options-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 18px 0;
+}
+.cbt-review-option-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+.cbt-review-option-item.is-correct {
+  border-color: #22c55e;
+  background: #f0fdf4;
+}
+.cbt-review-option-item.is-incorrect {
+  border-color: #ef4444;
+  background: #fef2f2;
+}
+.cbt-review-option-item.is-selected-correct {
+  border-color: #16a34a;
+  background: #ecfdf5;
+}
+.cbt-review-option-bullet {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: #334155;
+  font-weight: 700;
+  font-size: 12px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.cbt-review-option-item.is-correct .cbt-review-option-bullet {
+  background: #22c55e;
+  color: #ffffff;
+}
+.cbt-review-option-item.is-incorrect .cbt-review-option-bullet {
+  background: #ef4444;
+  color: #ffffff;
+}
+.cbt-review-option-content {
+  flex: 1;
+}
+.cbt-review-option-diagram {
+  margin-top: 8px;
+}
+.cbt-review-badges {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.review-badge-correct {
+  color: #15803d;
+  background: #dcfce7;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+.review-badge-incorrect {
+  color: #b91c1c;
+  background: #fee2e2;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+.review-badge-user-correct {
+  color: #15803d;
+  background: #bbf7d0;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+/* ========================================================= */
+/* DRAG AND DROP UPLOAD STYLES                               */
+/* ========================================================= */
+.upload-dropzone.is-dragging {
+  border-color: var(--teal);
+  background: rgba(22, 120, 109, 0.08);
+  transform: scale(1.01);
+  box-shadow: 0 0 0 4px rgba(22, 120, 109, 0.15);
+}
+
+.doc-viewer-pane {
+  position: relative;
+}
+.doc-viewer-pane.is-dragging-doc {
+  border: 2px dashed var(--teal);
+}
+.viewer-drop-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(22, 120, 109, 0.92);
+  color: #ffffff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  z-index: 50;
+  border-radius: var(--radius-md);
+  pointer-events: none;
+}
+.viewer-drop-overlay strong {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.image-upload-dropzone {
+  border: 2px dashed var(--border);
+  border-radius: 8px;
+  padding: 24px;
+  text-align: center;
+  background: var(--subtle);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+.image-upload-dropzone:hover {
+  border-color: var(--teal);
+  background: #f0fdf9;
+}
+.image-upload-dropzone.is-dragging {
+  border-color: var(--teal);
+  background: rgba(22, 120, 109, 0.12);
+  transform: scale(1.01);
+  box-shadow: 0 0 0 3px rgba(22, 120, 109, 0.2);
+}
+.image-upload-dropzone p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.option-editor-card.is-dragging {
+  border-color: var(--teal);
+  background: #f0fdf9;
+  box-shadow: 0 0 0 2px var(--teal);
+}
+.option-drop-active-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 6px;
+  background: var(--teal);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  animation: pulse-drop 1s infinite alternate;
+}
+@keyframes pulse-drop {
+  from { opacity: 0.85; }
+  to { opacity: 1; }
+}
+.drag-hint-text {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.assets-gallery-dropzone {
+  border: 1.5px dashed var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  background: #ffffff;
+  transition: all 0.15s ease;
+}
+.assets-gallery-dropzone.is-dragging {
+  border-color: var(--teal);
+  background: rgba(22, 120, 109, 0.08);
+}
+.gallery-drag-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.profile-avatar-wrap.is-dragging {
+  outline: 3px dashed var(--teal);
+  outline-offset: 4px;
+  transform: scale(1.04);
+}
+
+

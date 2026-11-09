@@ -272,6 +272,70 @@ describe('Examination Mode: Strict Answer Concealment', () => {
     expect(optionCards[1]?.classList.contains('selected')).toBe(true)
   })
 
+  it('renders diagrams inside option cards for diagram-based questions in CBT interface', () => {
+    const diagAssetId = 'd1a67a00-0000-4000-8000-000000000001'
+    const promptAssetId = 'd1a67a00-0000-4000-8000-000000000002'
+
+    const graphQuestion: Question = {
+      id: 'graph-q-102',
+      schemaVersion: 1,
+      ownerId: null,
+      revision: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+      remoteRevision: null,
+      subject: 'Physics',
+      type: 'single-correct',
+      chapter: 'Kinematics',
+      topic: 'v-t graphs',
+      year: 2024,
+      session: 'Session 1',
+      difficulty: 'medium',
+      prompt: 'Which of the following graphs represents uniform acceleration?',
+      assets: [
+        { assetId: promptAssetId, role: 'crop', pageNumber: 1 },
+        { assetId: diagAssetId, role: 'diagram', pageNumber: 1 },
+      ],
+      options: [
+        { id: 'A', text: 'Linear increase', diagramAssetId: diagAssetId },
+        { id: 'B', text: 'Constant velocity', diagramAssetId: null },
+      ],
+      correctOptionIds: ['A'],
+      numericalAnswer: '',
+      numericalTolerance: '0',
+      solution: 'Slope of v-t graph represents acceleration.',
+      verification: 'verified',
+      answerVerification: 'verified',
+      notes: '',
+      sourceLabel: 'JEE 2024',
+      sourceQuestionNumber: '1',
+    }
+
+    const { container } = render(
+      <CBTQuestionArea
+        question={graphQuestion}
+        questionNumber={1}
+        preset={dummyPreset}
+        response={undefined}
+        onOptionToggle={() => {}}
+        onNumericalChange={() => {}}
+      />,
+    )
+
+    // Option A has .cbt-option-diagram
+    const optionCards = container.querySelectorAll('.cbt-option-card')
+    expect(optionCards).toHaveLength(2)
+    expect(optionCards[0]?.querySelector('.cbt-option-diagram')).not.toBeNull()
+    expect(optionCards[1]?.querySelector('.cbt-option-diagram')).toBeNull()
+
+    // Prompt assets only include promptAssetId, not diagAssetId (which is attached to Option A)
+    const promptAssetsContainer = container.querySelector('.cbt-question-assets')
+    expect(promptAssetsContainer).not.toBeNull()
+    const promptAssetsFigures = promptAssetsContainer?.querySelectorAll('.cbt-asset-container')
+    expect(promptAssetsFigures).toHaveLength(1)
+  })
+
   it('scores unverified questions as ungraded without fabricating marks', () => {
     const unverifiedQuestion: Question = {
       id: 'ungraded-q-202',

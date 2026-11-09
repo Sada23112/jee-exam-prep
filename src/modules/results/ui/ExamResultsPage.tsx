@@ -408,6 +408,10 @@ export function ExamResultsPage() {
           {filteredEvaluations.map(ev => {
             const question = exam.questionSnapshots.find(q => q.id === ev.questionId)!
             const originalIndex = exam.questionSnapshots.findIndex(q => q.id === ev.questionId)
+            const optionAssetIds = new Set(question.options.map(o => o.diagramAssetId).filter(Boolean))
+            const promptAssets = question.assets.filter(asset => !optionAssetIds.has(asset.assetId))
+            const candidateResponse = exam.responses.find(r => r.questionId === ev.questionId)
+            const selectedOptIds = candidateResponse?.selectedOptionIds ?? []
 
             return (
               <article key={ev.questionId} className={`cbt-review-card status-${ev.status}`}>
@@ -435,9 +439,9 @@ export function ExamResultsPage() {
                     <MathText text={question.prompt} />
                   </div>
 
-                  {question.assets.length > 0 && (
+                  {promptAssets.length > 0 && (
                     <div className="cbt-question-assets">
-                      {question.assets.map(asset => (
+                      {promptAssets.map(asset => (
                         <div key={asset.assetId} className="cbt-asset-container">
                           <AssetImage
                             assetId={asset.assetId}
@@ -446,6 +450,36 @@ export function ExamResultsPage() {
                           />
                         </div>
                       ))}
+                    </div>
+                  )}
+
+                  {question.options.length > 0 && (
+                    <div className="cbt-review-options-list">
+                      {question.options.map(opt => {
+                        const isSelected = selectedOptIds.includes(opt.id)
+                        const isCorrect = question.correctOptionIds.includes(opt.id)
+                        return (
+                          <div
+                            key={opt.id}
+                            className={`cbt-review-option-item ${isCorrect ? 'is-correct' : ''} ${isSelected && !isCorrect ? 'is-incorrect' : ''} ${isSelected && isCorrect ? 'is-selected-correct' : ''}`}
+                          >
+                            <span className="cbt-review-option-bullet">{opt.id}</span>
+                            <div className="cbt-review-option-content">
+                              {opt.text && <MathText text={opt.text} />}
+                              {opt.diagramAssetId && (
+                                <div className="cbt-review-option-diagram">
+                                  <AssetImage assetId={opt.diagramAssetId} role="diagram" pageNumber={null} compact />
+                                </div>
+                              )}
+                            </div>
+                            <div className="cbt-review-badges">
+                              {isCorrect && <span className="review-badge-correct">✓ Correct Choice</span>}
+                              {isSelected && !isCorrect && <span className="review-badge-incorrect">✗ Your Choice</span>}
+                              {isSelected && isCorrect && <span className="review-badge-user-correct">✓ Your Choice</span>}
+                            </div>
+                          </div>
+                        )
+                      })}
                     </div>
                   )}
 

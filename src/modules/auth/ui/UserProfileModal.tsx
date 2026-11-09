@@ -6,6 +6,7 @@ import { FirebaseStorageService } from '../../../infrastructure/firebase/storage
 import { Dialog } from '../../../shared/ui/Dialog'
 import { Notice } from '../../../shared/ui/Feedback'
 import { Icon } from '../../../shared/ui/Icon'
+import { useFileDrop } from '../../../shared/ui/use-file-drop'
 import type { Subject } from '../../question-bank/domain/question'
 
 interface UserProfileModalProps {
@@ -32,10 +33,7 @@ export function UserProfileModal({ open, onClose }: UserProfileModalProps) {
 
   if (!open || !user) return null
 
-  const handleAvatarChange = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
+  const handleAvatarFile = async (file: File) => {
     setUploadingAvatar(true)
     setStatusNotice(null)
     try {
@@ -51,6 +49,21 @@ export function UserProfileModal({ open, onClose }: UserProfileModalProps) {
       setUploadingAvatar(false)
     }
   }
+
+  const handleAvatarChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    await handleAvatarFile(file)
+  }
+
+  const { isDragging: isDraggingAvatar, dropProps: avatarDropProps } = useFileDrop({
+    onFiles: files => {
+      const file = files[0]
+      if (file) void handleAvatarFile(file)
+    },
+    accept: ['image/png', 'image/jpeg', 'image/webp'],
+    disabled: uploadingAvatar,
+  })
 
   const handleSubjectToggle = (subj: Subject) => {
     if (preferredSubjects.includes(subj)) {
@@ -154,7 +167,11 @@ export function UserProfileModal({ open, onClose }: UserProfileModalProps) {
 
         {/* Profile Header Card */}
         <div className="profile-header-card">
-          <div className="profile-avatar-wrap">
+          <div
+            className={`profile-avatar-wrap ${isDraggingAvatar ? 'is-dragging' : ''}`}
+            title="Click badge or drag & drop photo here to change avatar"
+            {...avatarDropProps}
+          >
             {profile?.photoURL ? (
               <img src={profile.photoURL} alt={displayName} className="profile-avatar-img" />
             ) : (

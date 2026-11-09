@@ -9,6 +9,12 @@ export type QuestionType = 'single-correct' | 'multiple-correct' | 'numerical'
 export type VerificationState = 'verified' | 'needs-review' | 'incomplete'
 export type Difficulty = 'unspecified' | 'easy' | 'medium' | 'hard'
 
+export interface QuestionOption {
+  id: string
+  text: string
+  diagramAssetId?: string | null
+}
+
 export interface QuestionDraft {
   subject: Subject
   type: QuestionType
@@ -18,7 +24,7 @@ export interface QuestionDraft {
   session: string
   difficulty: Difficulty
   prompt: string
-  options: Array<{ id: string; text: string }>
+  options: QuestionOption[]
   correctOptionIds: string[]
   numericalAnswer: string
   numericalTolerance: string
@@ -53,7 +59,11 @@ const questionDraftShape = {
   difficulty: z.enum(['unspecified', 'easy', 'medium', 'hard']),
   // Do not transform authored content, including whitespace and mathematical notation.
   prompt: z.string().max(200_000),
-  options: z.array(z.object({ id: optionIdSchema, text: z.string().max(100_000) }).strict()).max(100),
+  options: z.array(z.object({
+    id: optionIdSchema,
+    text: z.string().max(100_000),
+    diagramAssetId: uuidSchema.nullable().optional(),
+  }).strict()).max(100),
   correctOptionIds: z.array(optionIdSchema).max(100),
   numericalAnswer: z.string().max(128),
   numericalTolerance: z.string().max(128),
@@ -79,6 +89,12 @@ function validateQuestion(value: QuestionDraft, ctx: z.RefinementCtx): void {
   if (value.correctOptionIds.some(id => !optionIds.has(id))) {
     issue(['correctOptionIds'], 'Every correct option must reference an existing option.')
   }
+  const assetIds = new Set(value.assets.map(asset => asset.assetId))
+  value.options.forEach((option, index) => {
+    if (option.diagramAssetId && !assetIds.has(option.diagramAssetId)) {
+      issue(['options', index, 'diagramAssetId'], 'Every option diagram must reference an attached question asset.')
+    }
+  })
   const complete = value.verification !== 'incomplete'
   const verifiedKey = value.answerVerification === 'verified'
   if (complete && !value.prompt.trim() && !value.assets.some(asset => asset.role === 'page' || asset.role === 'crop')) {
@@ -90,7 +106,7 @@ function validateQuestion(value: QuestionDraft, ctx: z.RefinementCtx): void {
   }
   if (complete || (verifiedKey && value.type !== 'numerical')) {
     value.options.forEach((option, index) => {
-      if (!option.text.trim()) issue(['options', index, 'text'], 'Every choice needs nonblank text when the question is non-incomplete or its answer key is verified.')
+      if (!option.text.trim() && !option.diagramAssetId) issue(['options', index, 'text'], 'Every choice needs nonblank text or a diagram when the question is non-incomplete or its answer key is verified.')
     })
   }
   if (value.type === 'numerical') {

@@ -34,6 +34,7 @@ import { AnswerKeyModal } from './AnswerKeyModal'
 import { FinalizePaperModal } from './FinalizePaperModal'
 import { Icon } from '../../../shared/ui/Icon'
 import { Notice } from '../../../shared/ui/Feedback'
+import { useFileDrop } from '../../../shared/ui/use-file-drop'
 
 export function QuestionImporterPage() {
   const [session, setSession] = useState<ImportSession | null>(null)
@@ -320,11 +321,18 @@ export function QuestionImporterPage() {
   }
 
   // Crop saved callback: attach to current question
-  const handleCropSaved = (asset: AssetRecord) => {
+  const handleCropSaved = (asset: AssetRecord, targetOptionId?: string) => {
     if (!session || !session.questions[activeQuestionIndex]) return
     const currentQ = session.questions[activeQuestionIndex]!
+    let nextOptions = currentQ.options
+    if (targetOptionId) {
+      nextOptions = currentQ.options.map(opt =>
+        opt.id === targetOptionId ? { ...opt, diagramAssetId: asset.id } : opt
+      )
+    }
     const updatedQ: ImportedQuestionDraft = {
       ...currentQ,
+      options: nextOptions,
       assets: [
         ...currentQ.assets,
         {
@@ -340,7 +348,9 @@ export function QuestionImporterPage() {
 
     setStatusMessage({
       kind: 'success',
-      text: `Cropped diagram attached to Q${currentQ.sourceQuestionNumber || activeQuestionIndex + 1}.`,
+      text: targetOptionId
+        ? `Cropped diagram attached to Option ${targetOptionId} for Q${currentQ.sourceQuestionNumber || activeQuestionIndex + 1}.`
+        : `Cropped diagram attached to Q${currentQ.sourceQuestionNumber || activeQuestionIndex + 1}.`,
     })
   }
 
@@ -547,6 +557,21 @@ export function QuestionImporterPage() {
   const questionVerifiedCount = session?.questions.filter(q => q.verification === 'verified').length ?? 0
   const answerVerifiedCount = session?.questions.filter(q => inferAnswerKeyStatus(q) === 'verified').length ?? 0
 
+  const { isDragging, dropProps } = useFileDrop({
+    onFiles: files => {
+      const file = files[0]
+      if (file) {
+        if (session) {
+          void handleReattachDocument(file)
+        } else {
+          void handleFileUpload(file)
+        }
+      }
+    },
+    accept: ['.pdf', 'image/png', 'image/jpeg', 'image/webp', 'application/pdf'],
+    disabled: isLoadingDoc,
+  })
+
   return (
     <section className="page question-importer-page">
       <input
@@ -634,15 +659,22 @@ export function QuestionImporterPage() {
       {!session ? (
         <div className="importer-upload-container">
           <div
-            className="upload-dropzone"
+            className={`upload-dropzone ${isDragging ? 'is-dragging' : ''}`}
             onClick={() => fileInputRef.current?.click()}
+            {...dropProps}
           >
             <div className="dropzone-icon">
-              <Icon name="bank" size={40} />
+              <Icon name={isDragging ? 'upload' : 'bank'} size={40} />
             </div>
-            <h3>Upload Question Paper Document</h3>
+            <h3>{isDragging ? 'Drop Question Paper Document Here' : 'Upload Question Paper Document'}</h3>
             <p>
-              Select a <strong>digital PDF</strong>, <strong>scanned PDF</strong>, or <strong>image</strong> (PNG, JPEG, WebP)
+              {isDragging ? (
+                <strong>Release to import and start reviewing questions</strong>
+              ) : (
+                <>
+                  Drag &amp; drop a <strong>digital PDF</strong>, <strong>scanned PDF</strong>, or <strong>image</strong> (PNG, JPEG, WebP) here, or click to browse
+                </>
+              )}
             </p>
             <button type="button" className="button button-primary" disabled={isLoadingDoc}>
               {isLoadingDoc ? 'Loading document…' : 'Select Paper File'}
@@ -721,6 +753,8 @@ export function QuestionImporterPage() {
                 fileName={session.fileName}
                 isLoadingDoc={isLoadingDoc}
                 onReattachDocument={() => fileInputRef.current?.click()}
+                onFileDrop={file => void handleReattachDocument(file)}
+                optionIds={session.questions[activeQuestionIndex]?.type !== 'numerical' ? session.questions[activeQuestionIndex]?.options.map(o => o.id) : []}
               />
 
               {/* Right Pane: Question Verification (Spoiler-Free) */}

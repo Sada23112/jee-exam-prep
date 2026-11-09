@@ -96,6 +96,55 @@ describe('question contracts and semantic validation', () => {
     const asset = { assetId: crypto.randomUUID(), role: 'page', pageNumber: 1 }
     expect(questionDraftSchema.safeParse({ ...choice(), assets: [asset, asset] }).success).toBe(false)
   })
+  it('supports and validates option diagrams for graph and diagram-based choices', () => {
+    const assetA = { assetId: crypto.randomUUID(), role: 'diagram' as const, pageNumber: null }
+    const assetB = { assetId: crypto.randomUUID(), role: 'diagram' as const, pageNumber: null }
+
+    // Valid: Options with text and diagram
+    const qWithDiagrams = {
+      ...choice(),
+      assets: [assetA, assetB],
+      options: [
+        { id: 'A', text: 'Graph A', diagramAssetId: assetA.assetId },
+        { id: 'B', text: 'Graph B', diagramAssetId: assetB.assetId },
+      ],
+    }
+    expect(questionDraftSchema.safeParse(qWithDiagrams).success).toBe(true)
+
+    // Valid: Diagram-only options (blank text allowed when diagramAssetId is present)
+    const qDiagramOnly = {
+      ...choice(),
+      assets: [assetA, assetB],
+      options: [
+        { id: 'A', text: '', diagramAssetId: assetA.assetId },
+        { id: 'B', text: '', diagramAssetId: assetB.assetId },
+      ],
+    }
+    expect(questionDraftSchema.safeParse(qDiagramOnly).success).toBe(true)
+
+    // Invalid: diagramAssetId references an asset ID not present in question assets
+    const missingAsset = crypto.randomUUID()
+    const qMissingAsset = {
+      ...choice(),
+      assets: [assetA],
+      options: [
+        { id: 'A', text: 'Valid', diagramAssetId: assetA.assetId },
+        { id: 'B', text: 'Invalid', diagramAssetId: missingAsset },
+      ],
+    }
+    expect(questionDraftSchema.safeParse(qMissingAsset).success).toBe(false)
+
+    // Invalid: Option has blank text and no diagramAssetId when verified
+    const qBlankNoDiagram = {
+      ...choice(),
+      assets: [assetA],
+      options: [
+        { id: 'A', text: 'Valid', diagramAssetId: assetA.assetId },
+        { id: 'B', text: '   ', diagramAssetId: null },
+      ],
+    }
+    expect(questionDraftSchema.safeParse(qBlankNoDiagram).success).toBe(false)
+  })
 })
 
 describe('collection, user-authored preset and future history contracts', () => {

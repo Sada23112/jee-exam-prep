@@ -25,6 +25,8 @@ export function CBTQuestionArea({
   const marking = preset.marking[question.type]
   const selectedOptions = response?.selectedOptionIds ?? []
   const numericalValue = response?.numericalAnswer ?? ''
+  const optionAssetIds = new Set(question.options.map(o => o.diagramAssetId).filter(Boolean))
+  const promptAssets = question.assets.filter(asset => !optionAssetIds.has(asset.assetId))
 
   function handleKeypadClick(char: string) {
     if (char === 'clear') {
@@ -69,9 +71,9 @@ export function CBTQuestionArea({
             <MathText text={question.prompt} />
           </div>
 
-          {question.assets.length > 0 && (
+          {promptAssets.length > 0 && (
             <div className="cbt-question-assets">
-              {question.assets.map(asset => (
+              {promptAssets.map(asset => (
                 <div key={asset.assetId} className="cbt-asset-container">
                   <AssetImage
                     assetId={asset.assetId}
@@ -154,7 +156,12 @@ export function CBTQuestionArea({
                     />
                     <span className="cbt-option-bullet">{option.id}</span>
                     <div className="cbt-option-content">
-                      <MathText text={option.text} />
+                      {option.text && <MathText text={option.text} />}
+                      {option.diagramAssetId && (
+                        <div className="cbt-option-diagram">
+                          <AssetImage assetId={option.diagramAssetId} role="diagram" pageNumber={null} compact />
+                        </div>
+                      )}
                     </div>
                   </label>
                 )

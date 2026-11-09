@@ -11,6 +11,9 @@ import { EmptyState, Notice } from '../../../shared/ui/Feedback'
 import { UnsavedDialog } from '../../../shared/ui/UnsavedDialog'
 import { MathText } from '../../../shared/ui/MathText'
 import { AssetImage } from '../../../shared/ui/AssetImage'
+import { Icon } from '../../../shared/ui/Icon'
+import { useFileDrop } from '../../../shared/ui/use-file-drop'
+import type { QuestionOption } from '../domain/question'
 
 export function QuestionEditorRoute() {
   const { id } = useParams()
@@ -45,6 +48,16 @@ function QuestionEditor({ original: incoming }: { original?: Question }) {
   const stale = original && (!latest || latest.revision !== original.revision)
   const chapters = [...new Set(questions.filter(question => question.subject === draft.subject).map(question => question.chapter).filter(Boolean))].sort()
 
+  const { isDragging: isDraggingSectionImages, dropProps: sectionImagesDropProps } = useFileDrop({
+    onFiles: async files => {
+      for (const file of files) {
+        await upload(file)
+      }
+    },
+    accept: ['image/png', 'image/jpeg', 'image/webp'],
+    disabled: busy || uploading,
+  })
+
   function field<K extends keyof QuestionDraft>(name: K, value: QuestionDraft[K]) {
     setDraft(current => ({ ...current, [name]: value }))
   }
@@ -55,12 +68,27 @@ function QuestionEditor({ original: incoming }: { original?: Question }) {
     }))
   }
   function setType(type: QuestionType) {
-    content({ type, options: type === 'numerical' ? [] : (draft.options.length ? draft.options : ['A', 'B', 'C', 'D'].map(id => ({ id, text: '' }))), correctOptionIds: [], numericalAnswer: '', numericalTolerance: '', answerVerification: 'incomplete' }, true)
+    content({ type, options: type === 'numerical' ? [] : (draft.options.length ? draft.options : ['A', 'B', 'C', 'D'].map(id => ({ id, text: '', diagramAssetId: null }))), correctOptionIds: [], numericalAnswer: '', numericalTolerance: '', answerVerification: 'incomplete' }, true)
   }
   function selectCorrect(id: string) {
     const correctOptionIds = draft.type === 'single-correct' ? (draft.correctOptionIds.includes(id) ? [] : [id])
       : draft.correctOptionIds.includes(id) ? draft.correctOptionIds.filter(value => value !== id) : [...draft.correctOptionIds, id]
     content({ correctOptionIds }, true)
+  }
+  async function uploadOptionDiagram(optionId: string, file: File) {
+    setUploading(true); setErrors([])
+    try {
+      const asset = await workspaceController.addImage(file, 'diagram')
+      content({
+        assets: [...draft.assets, { assetId: asset.id, role: 'diagram', pageNumber: null }],
+        options: draft.options.map(opt => opt.id === optionId ? { ...opt, diagramAssetId: asset.id } : opt),
+      }, true)
+    } catch (error) { setErrors([errorMessage(error)]) } finally { setUploading(false) }
+  }
+  function removeOptionDiagram(optionId: string) {
+    content({
+      options: draft.options.map(opt => opt.id === optionId ? { ...opt, diagramAssetId: null } : opt),
+    }, true)
   }
   async function upload(file: File) {
     const page = pageNumber ? Number(pageNumber) : null
@@ -100,16 +128,85 @@ function QuestionEditor({ original: incoming }: { original?: Question }) {
         <label>Difficulty<select aria-label="Difficulty" value={draft.difficulty} onChange={event => field('difficulty', event.target.value as QuestionDraft['difficulty'])}>{Object.entries(DIFFICULTY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       </div></section>
       <section className="panel form-section"><div className="section-heading"><div><h2>2. Question wording</h2><p>Plain text with optional $inline$ or $$display$$ LaTeX. Original text is stored unchanged.</p></div><button type="button" className="button button-secondary button-small" aria-pressed={preview} onClick={() => setPreview(current => !current)}>{preview ? 'Hide preview' : 'Show preview'}</button></div><label>Question text<textarea aria-label="Question text" rows={7} maxLength={200_000} value={draft.prompt} onChange={event => content({ prompt: event.target.value }, true)} placeholder="Enter the question exactly as written…" /></label>
-        {preview && <div className="content-preview"><h3>Rendered preview</h3>{draft.prompt ? <MathText text={draft.prompt} /> : <p className="muted">Enter text to preview it. Invalid notation stays visible as entered.</p>}</div>}
-        {draft.type !== 'numerical' && <div className="options-editor"><div className="options-heading"><h3>Answer options</h3><button type="button" className="text-button" disabled={draft.options.length >= 26} onClick={() => {
-          const id = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').find(value => !draft.options.some(option => option.id === value))
-          if (id) content({ options: [...draft.options, { id, text: '' }] }, true)
-        }}>+ Add option</button></div>{draft.options.map(option => <div key={option.id} className="option-editor"><span className="option-letter">{option.id}</span><label><span className="sr-only">Option {option.id} text</span><textarea aria-label={`Option ${option.id} text`} rows={2} maxLength={100_000} value={option.text} onChange={event => content({ options: draft.options.map(value => value.id === option.id ? { ...value, text: event.target.value } : value) }, true)} /></label><label className="correct-toggle"><input type="checkbox" checked={draft.correctOptionIds.includes(option.id)} onChange={() => selectCorrect(option.id)} />Correct {option.id}</label><button type="button" className="text-button danger-text" aria-label={`Remove option ${option.id}`} onClick={() => content({ options: draft.options.filter(value => value.id !== option.id), correctOptionIds: draft.correctOptionIds.filter(value => value !== option.id) }, true)}>Remove</button></div>)}</div>}
+        {preview && (
+          <div className="content-preview">
+            <h3>Rendered preview</h3>
+            {draft.prompt ? <MathText text={draft.prompt} /> : <p className="muted">Enter text to preview it. Invalid notation stays visible as entered.</p>}
+            {draft.options.length > 0 && draft.type !== 'numerical' && (
+              <div className="preview-options-list">
+                {draft.options.map(opt => (
+                  <div key={opt.id} className="preview-option-row">
+                    <span className="option-letter">{opt.id}</span>
+                    <div className="preview-option-body">
+                      {opt.text && <MathText text={opt.text} />}
+                      {opt.diagramAssetId && (
+                        <div className="preview-option-diagram">
+                          <AssetImage assetId={opt.diagramAssetId} role="diagram" pageNumber={null} compact />
+                        </div>
+                      )}
+                      {!opt.text && !opt.diagramAssetId && <span className="muted">(Empty option)</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {draft.type !== 'numerical' && (
+          <div className="options-editor">
+            <div className="options-heading">
+              <div>
+                <h3>Answer options</h3>
+                <p className="muted">Support text, formulas, and diagrams/graphs for each choice.</p>
+              </div>
+              <button
+                type="button"
+                className="text-button"
+                disabled={draft.options.length >= 26}
+                onClick={() => {
+                  const id = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').find(value => !draft.options.some(option => option.id === value))
+                  if (id) content({ options: [...draft.options, { id, text: '', diagramAssetId: null }] }, true)
+                }}
+              >
+                + Add option
+              </button>
+            </div>
+            {draft.options.map(option => (
+              <OptionEditorItem
+                key={option.id}
+                option={option}
+                draft={draft}
+                content={content}
+                selectCorrect={selectCorrect}
+                uploadOptionDiagram={uploadOptionDiagram}
+                removeOptionDiagram={removeOptionDiagram}
+              />
+            ))}
+          </div>
+        )}
         {draft.type === 'numerical' && <div className="form-grid numerical-fields"><label>Numerical answer<input aria-label="Numerical answer" inputMode="decimal" maxLength={128} value={draft.numericalAnswer} onChange={event => content({ numericalAnswer: event.target.value }, true)} placeholder="e.g. -2.5" /><small>Finite decimal only; no expressions or scientific notation.</small></label><label>Accepted tolerance<input aria-label="Accepted tolerance" inputMode="decimal" maxLength={128} value={draft.numericalTolerance} onChange={event => content({ numericalTolerance: event.target.value }, true)} placeholder="0 for exact value" /><small>Explicit non-negative decimal. Leave blank if unknown.</small></label></div>}
       </section>
-      <section className="panel form-section"><div className="section-heading"><h2>3. Original source images</h2><p>Attach original pages, individual crops, and diagrams alongside text. Files are never replaced by AI transcription.</p></div><div className="form-grid attachment-controls"><label>Image role<select aria-label="Image role" value={assetRole} onChange={event => setAssetRole(event.target.value as typeof assetRole)}><option value="crop">Question crop</option><option value="page">Original page</option><option value="diagram">Diagram</option></select></label><label>Source page number<input type="number" min={1} max={100_000} value={pageNumber} onChange={event => setPageNumber(event.target.value)} placeholder="Optional" /></label><label>Attach image<input aria-label="Attach image" type="file" accept="image/png,image/jpeg,image/webp" onChange={event => {
-        const file = event.target.files?.[0]; event.target.value = ''; if (file) void upload(file)
-      }} /><small>PNG, JPEG, or non-animated WebP · 10 MiB / 40M pixels per image</small></label></div>{uploading && <p role="status">Validating image bytes, dimensions, and checksum…</p>}
+      <section className="panel form-section"><div className="section-heading"><h2>3. Original source images</h2><p>Attach original pages, individual crops, and diagrams alongside text. Files are never replaced by AI transcription.</p></div>
+        <div className="form-grid attachment-controls">
+          <label>Image role<select aria-label="Image role" value={assetRole} onChange={event => setAssetRole(event.target.value as typeof assetRole)}><option value="crop">Question crop</option><option value="page">Original page</option><option value="diagram">Diagram</option></select></label>
+          <label>Source page number<input type="number" min={1} max={100_000} value={pageNumber} onChange={event => setPageNumber(event.target.value)} placeholder="Optional" /></label>
+          <label>Attach image<input aria-label="Attach image" type="file" accept="image/png,image/jpeg,image/webp" onChange={event => {
+            const file = event.target.files?.[0]; event.target.value = ''; if (file) void upload(file)
+          }} /><small>PNG, JPEG, or non-animated WebP · 10 MiB / 40M pixels per image</small></label>
+        </div>
+        <div
+          className={`image-upload-dropzone ${isDraggingSectionImages ? 'is-dragging' : ''}`}
+          {...sectionImagesDropProps}
+        >
+          <Icon name={isDraggingSectionImages ? 'upload' : 'bank'} size={28} />
+          <p>
+            {isDraggingSectionImages
+              ? <strong>Drop photos or diagrams here to attach</strong>
+              : <span>Drag &amp; drop photos/diagrams here, or use the file picker above</span>}
+          </p>
+          <small className="muted">Supports PNG, JPEG, or non-animated WebP</small>
+        </div>
+        {uploading && <p role="status">Validating image bytes, dimensions, and checksum…</p>}
         {draft.assets.length > 0 ? <div className="asset-grid">{draft.assets.map(reference => <AssetImage key={reference.assetId} {...reference} onRemove={() => content({ assets: draft.assets.filter(value => value.assetId !== reference.assetId) })} />)}</div> : <p className="muted">No original images attached. Manually authored questions can be text-only.</p>}<small className="muted">Validated uploads are stored immediately. Detaching does not destroy their original bytes; backups retain them.</small>
       </section>
       <section className="panel form-section"><div className="section-heading"><h2>4. Answer, solution and verification</h2><p>“Verified” is your explicit confirmation, not an automatic inference.</p></div><label>Detailed solution<textarea aria-label="Detailed solution" rows={5} maxLength={200_000} value={draft.solution} onChange={event => content({ solution: event.target.value })} placeholder="Optional solution. Do not invent one if unavailable." /></label><div className="form-grid verification-fields"><label>Answer-key verification<select aria-label="Answer-key verification" value={draft.answerVerification} onChange={event => content({ answerVerification: event.target.value as VerificationState })}>{Object.entries(VERIFICATION_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Question verification<select aria-label="Question verification" value={draft.verification} onChange={event => field('verification', event.target.value as VerificationState)}>{Object.entries(VERIFICATION_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div>
@@ -119,4 +216,130 @@ function QuestionEditor({ original: incoming }: { original?: Question }) {
       <div className="editor-actions"><p>{dirty ? 'Changes are not saved until you press Save question.' : 'Saved questions are versioned; edits never replace historical revisions.'}</p><Link className="button button-secondary" to="/bank">Cancel</Link><button type="submit" className="button button-primary" disabled={stale || busy || uploading}>{busy ? 'Saving…' : 'Save question'}</button></div>
     </fieldset></form><UnsavedDialog blocker={blocker} />
   </div>
+}
+
+function OptionEditorItem({
+  option,
+  draft,
+  content,
+  selectCorrect,
+  uploadOptionDiagram,
+  removeOptionDiagram,
+}: {
+  option: QuestionOption
+  draft: QuestionDraft
+  content: (patch: Partial<QuestionDraft>, affectsKey?: boolean) => void
+  selectCorrect: (id: string) => void
+  uploadOptionDiagram: (optionId: string, file: File) => Promise<void>
+  removeOptionDiagram: (optionId: string) => void
+}) {
+  const availableDiagrams = draft.assets.filter(a => a.role === 'diagram')
+  const { isDragging, dropProps } = useFileDrop({
+    onFiles: files => {
+      const file = files[0]
+      if (file) void uploadOptionDiagram(option.id, file)
+    },
+    accept: ['image/png', 'image/jpeg', 'image/webp'],
+  })
+
+  return (
+    <div className={`option-editor-card ${isDragging ? 'is-dragging' : ''}`} {...dropProps}>
+      <div className="option-editor-main">
+        <span className="option-letter">{option.id}</span>
+        <label className="option-text-label">
+          <span className="sr-only">Option {option.id} text</span>
+          <textarea
+            aria-label={`Option ${option.id} text`}
+            rows={2}
+            maxLength={100_000}
+            value={option.text}
+            onChange={event => content({
+              options: draft.options.map(value => value.id === option.id ? { ...value, text: event.target.value } : value)
+            }, true)}
+            placeholder={`Option ${option.id} text or LaTeX (optional if diagram attached)…`}
+          />
+        </label>
+        <label className="correct-toggle">
+          <input
+            type="checkbox"
+            checked={draft.correctOptionIds.includes(option.id)}
+            onChange={() => selectCorrect(option.id)}
+          />
+          Correct {option.id}
+        </label>
+        <button
+          type="button"
+          className="text-button danger-text"
+          aria-label={`Remove option ${option.id}`}
+          onClick={() => content({
+            options: draft.options.filter(value => value.id !== option.id),
+            correctOptionIds: draft.correctOptionIds.filter(value => value !== option.id)
+          }, true)}
+        >
+          Remove
+        </button>
+      </div>
+
+      <div className="option-diagram-bar">
+        {isDragging ? (
+          <div className="option-drop-active-pill">
+            <Icon name="upload" size={16} />
+            <strong>Drop image here to attach as Option {option.id} diagram</strong>
+          </div>
+        ) : option.diagramAssetId ? (
+          <div className="option-diagram-attached">
+            <span className="diagram-status-badge">Attached Option Diagram:</span>
+            <AssetImage
+              assetId={option.diagramAssetId}
+              role="diagram"
+              pageNumber={null}
+              compact
+              onRemove={() => removeOptionDiagram(option.id)}
+            />
+          </div>
+        ) : (
+          <div className="option-diagram-actions">
+            <label className="button button-secondary button-small btn-attach-diagram">
+              <Icon name="upload" size={14} />
+              <span>Attach Diagram / Graph</span>
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                style={{ display: 'none' }}
+                onChange={event => {
+                  const file = event.target.files?.[0]
+                  event.target.value = ''
+                  if (file) void uploadOptionDiagram(option.id, file)
+                }}
+              />
+            </label>
+            <span className="drag-hint-text">or drag &amp; drop image here</span>
+            {availableDiagrams.length > 0 && (
+              <div className="option-diagram-link-select">
+                <select
+                  aria-label={`Link diagram to Option ${option.id}`}
+                  className="select-small"
+                  value=""
+                  onChange={e => {
+                    const selectedId = e.target.value
+                    if (!selectedId) return
+                    content({
+                      options: draft.options.map(value => value.id === option.id ? { ...value, diagramAssetId: selectedId } : value)
+                    }, true)
+                  }}
+                >
+                  <option value="">Or link from question diagrams…</option>
+                  {availableDiagrams.map((d, dIdx) => (
+                    <option key={d.assetId} value={d.assetId}>
+                      Diagram #{dIdx + 1} {d.pageNumber ? `(Page ${d.pageNumber})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }

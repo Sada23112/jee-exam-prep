@@ -9,6 +9,9 @@ import {
 import { MathText } from '../../../shared/ui/MathText'
 import { AssetImage } from '../../../shared/ui/AssetImage'
 import { Icon } from '../../../shared/ui/Icon'
+import { workspaceController, errorMessage } from '../../../app/workspace-state'
+import { useFileDrop } from '../../../shared/ui/use-file-drop'
+import type { QuestionOption } from '../../question-bank/domain/question'
 
 interface QuestionVerifyPaneProps {
   questions: ImportedQuestionDraft[]
@@ -87,8 +90,69 @@ export function QuestionVerifyPane({
 
   const handleRemoveAsset = (assetId: string) => {
     const updatedAssets = current.assets.filter(a => a.assetId !== assetId)
-    updateField('assets', updatedAssets)
+    const updatedOptions = current.options.map(o => o.diagramAssetId === assetId ? { ...o, diagramAssetId: null } : o)
+    onUpdateQuestion(activeQuestionIndex, normalizeDraftOptionsAndKey({
+      ...current,
+      assets: updatedAssets,
+      options: updatedOptions,
+    }))
   }
+
+  const handleAssignAssetToOption = (assetId: string, targetOptionId: string | 'prompt') => {
+    let nextOptions = current.options
+    if (targetOptionId === 'prompt') {
+      nextOptions = current.options.map(o => o.diagramAssetId === assetId ? { ...o, diagramAssetId: null } : o)
+    } else {
+      nextOptions = current.options.map(o => {
+        if (o.id === targetOptionId) return { ...o, diagramAssetId: assetId }
+        if (o.diagramAssetId === assetId) return { ...o, diagramAssetId: null }
+        return o
+      })
+    }
+    updateField('options', nextOptions)
+  }
+
+  const handleUploadOptionDiagram = async (optionId: string, file: File) => {
+    try {
+      const asset = await workspaceController.addImage(file, 'diagram')
+      const updatedAssets = [...current.assets, { assetId: asset.id, role: 'diagram' as const, pageNumber: current.sourcePageNumber }]
+      const updatedOptions = current.options.map(o => o.id === optionId ? { ...o, diagramAssetId: asset.id } : o)
+      onUpdateQuestion(activeQuestionIndex, normalizeDraftOptionsAndKey({
+        ...current,
+        assets: updatedAssets,
+        options: updatedOptions,
+      }))
+    } catch (err) {
+      alert(`Could not upload diagram: ${errorMessage(err)}`)
+    }
+  }
+
+  const handleRemoveOptionDiagram = (optionId: string) => {
+    const updatedOptions = current.options.map(o => o.id === optionId ? { ...o, diagramAssetId: null } : o)
+    updateField('options', updatedOptions)
+  }
+
+  const handleUploadNewDiagram = async (file: File) => {
+    try {
+      const asset = await workspaceController.addImage(file, 'diagram')
+      const updatedAssets = [...current.assets, { assetId: asset.id, role: 'diagram' as const, pageNumber: current.sourcePageNumber }]
+      onUpdateQuestion(activeQuestionIndex, normalizeDraftOptionsAndKey({
+        ...current,
+        assets: updatedAssets,
+      }))
+    } catch (err) {
+      alert(`Could not upload diagram: ${errorMessage(err)}`)
+    }
+  }
+
+  const { isDragging: isDraggingVerifyGallery, dropProps: verifyGalleryDropProps } = useFileDrop({
+    onFiles: async files => {
+      for (const f of files) {
+        await handleUploadNewDiagram(f)
+      }
+    },
+    accept: ['image/png', 'image/jpeg', 'image/webp'],
+  })
 
   const handleSetVerification = (state: VerificationState) => {
     if (state === 'verified') {
@@ -313,32 +377,63 @@ export function QuestionVerifyPane({
             </div>
 
             {/* Attached Assets Gallery */}
-            {current.assets.length > 0 && (
-              <div className="field-section">
-                <div className="section-header">
-                  <span className="section-title">Attached Diagrams & Crops ({current.assets.length})</span>
-                </div>
-                <div className="assets-gallery">
-                  {current.assets.map(asset => (
-                    <div key={asset.assetId} className="asset-thumbnail-card">
-                      <div className="thumbnail-box">
-                        <AssetImage assetId={asset.assetId} role={asset.role} pageNumber={asset.pageNumber} />
-                      </div>
-                      <div className="thumbnail-info">
-                        <span className="role-badge">{asset.role}</span>
-                        <button
-                          type="button"
-                          className="button button-secondary button-small btn-remove-crop"
-                          onClick={() => handleRemoveAsset(asset.assetId)}
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+            <div className="field-section">
+              <div className="section-header">
+                <span className="section-title">Attached Diagrams & Crops ({current.assets.length})</span>
+              </div>
+              <div
+                className={`assets-gallery-dropzone ${isDraggingVerifyGallery ? 'is-dragging' : ''}`}
+                {...verifyGalleryDropProps}
+              >
+                {current.assets.length > 0 && (
+                  <div className="assets-gallery">
+                    {current.assets.map(asset => {
+                      const assignedOption = current.options.find(o => o.diagramAssetId === asset.assetId)?.id
+                      return (
+                        <div key={asset.assetId} className="asset-thumbnail-card">
+                          <div className="thumbnail-box">
+                            <AssetImage assetId={asset.assetId} role={asset.role} pageNumber={asset.pageNumber} />
+                          </div>
+                          <div className="thumbnail-info">
+                            <span className="role-badge">{asset.role}</span>
+                            {current.type !== 'numerical' && (
+                              <select
+                                aria-label="Assign crop to question or option"
+                                className="select-small crop-assign-select"
+                                value={assignedOption || 'prompt'}
+                                onChange={e => handleAssignAssetToOption(asset.assetId, e.target.value)}
+                              >
+                                <option value="prompt">Attached to: Prompt</option>
+                                {current.options.map(opt => (
+                                  <option key={opt.id} value={opt.id}>
+                                    Assigned to: Option {opt.id}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                            <button
+                              type="button"
+                              className="button button-secondary button-small btn-remove-crop"
+                              onClick={() => handleRemoveAsset(asset.assetId)}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+                <div className="gallery-drag-hint">
+                  <Icon name={isDraggingVerifyGallery ? 'upload' : 'bank'} size={20} />
+                  <span>
+                    {isDraggingVerifyGallery
+                      ? 'Drop image here to attach as diagram'
+                      : 'Drag & drop photos or diagram crops here to attach'}
+                  </span>
                 </div>
               </div>
-            )}
+            </div>
 
             {/* Options for Choice Questions (Spoiler-Free by default) */}
             {current.type !== 'numerical' && (
@@ -363,46 +458,19 @@ export function QuestionVerifyPane({
                   )}
                 </div>
                 <div className="options-editor-list">
-                  {current.options.map(option => {
-                    const isCorrect = current.correctOptionIds.includes(option.id)
-                    const showCorrectness = showSpoilers && isCorrect
-
-                    return (
-                      <div
-                        key={option.id}
-                        className={`option-editor-row ${showCorrectness ? 'is-correct' : ''}`}
-                      >
-                        {showSpoilers ? (
-                          <button
-                            type="button"
-                            className={`btn-option-indicator ${isCorrect ? 'active' : ''}`}
-                            onClick={() => handleOptionCorrectToggle(option.id)}
-                            title={isCorrect ? 'Correct choice' : 'Click to mark as correct'}
-                          >
-                            {option.id}
-                          </button>
-                        ) : (
-                          <span className="option-neutral-badge" title="Option label">
-                            {option.id}
-                          </span>
-                        )}
-                        <div className="option-input-wrap">
-                          <input
-                            type="text"
-                            value={option.text}
-                            onChange={e => handleOptionTextChange(option.id, e.target.value)}
-                            placeholder={`Option ${option.id} text...`}
-                            className="text-input"
-                          />
-                          {option.text && (
-                            <div className="option-math-peek">
-                              <MathText text={option.text} />
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
+                  {current.options.map(option => (
+                    <VerifyOptionItem
+                      key={option.id}
+                      option={option}
+                      current={current}
+                      showSpoilers={showSpoilers}
+                      handleOptionCorrectToggle={handleOptionCorrectToggle}
+                      handleOptionTextChange={handleOptionTextChange}
+                      handleRemoveOptionDiagram={handleRemoveOptionDiagram}
+                      handleUploadOptionDiagram={handleUploadOptionDiagram}
+                      handleAssignAssetToOption={handleAssignAssetToOption}
+                    />
+                  ))}
                 </div>
               </div>
             )}
@@ -509,11 +577,13 @@ export function QuestionVerifyPane({
                 <MathText text={current.prompt || '*(No prompt text)*'} />
               </div>
 
-              {current.assets.map(asset => (
-                <div key={asset.assetId} className="crop-preview-block">
-                  <AssetImage assetId={asset.assetId} role={asset.role} pageNumber={asset.pageNumber} />
-                </div>
-              ))}
+              {current.assets
+                .filter(asset => !current.options.some(o => o.diagramAssetId === asset.assetId))
+                .map(asset => (
+                  <div key={asset.assetId} className="crop-preview-block">
+                    <AssetImage assetId={asset.assetId} role={asset.role} pageNumber={asset.pageNumber} />
+                  </div>
+                ))}
 
               {current.type !== 'numerical' ? (
                 <div className="options-preview-block">
@@ -523,7 +593,15 @@ export function QuestionVerifyPane({
                       className={`option-preview-item ${showSpoilers && current.correctOptionIds.includes(option.id) ? 'marked-correct' : ''}`}
                     >
                       <span className="option-badge">{option.id}</span>
-                      <MathText text={option.text || '*(Empty option)*'} />
+                      <div className="option-preview-item-content">
+                        {option.text && <MathText text={option.text} />}
+                        {option.diagramAssetId && (
+                          <div className="option-preview-diagram-box">
+                            <AssetImage assetId={option.diagramAssetId} role="diagram" pageNumber={null} compact />
+                          </div>
+                        )}
+                        {!option.text && !option.diagramAssetId && <em>(Empty option)</em>}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -594,6 +672,130 @@ export function QuestionVerifyPane({
             </button>
           </div>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function VerifyOptionItem({
+  option,
+  current,
+  showSpoilers,
+  handleOptionCorrectToggle,
+  handleOptionTextChange,
+  handleRemoveOptionDiagram,
+  handleUploadOptionDiagram,
+  handleAssignAssetToOption,
+}: {
+  option: QuestionOption
+  current: ImportedQuestionDraft
+  showSpoilers: boolean
+  handleOptionCorrectToggle: (optionId: string) => void
+  handleOptionTextChange: (optionId: string, text: string) => void
+  handleRemoveOptionDiagram: (optionId: string) => void
+  handleUploadOptionDiagram: (optionId: string, file: File) => Promise<void>
+  handleAssignAssetToOption: (assetId: string, targetOptionId: string | 'prompt') => void
+}) {
+  const isCorrect = current.correctOptionIds.includes(option.id)
+  const showCorrectness = showSpoilers && isCorrect
+  const availableDiagrams = current.assets.filter(a => a.role === 'diagram')
+
+  const { isDragging, dropProps } = useFileDrop({
+    onFiles: files => {
+      const file = files[0]
+      if (file) void handleUploadOptionDiagram(option.id, file)
+    },
+    accept: ['image/png', 'image/jpeg', 'image/webp'],
+  })
+
+  return (
+    <div className={`option-editor-card ${showCorrectness ? 'is-correct' : ''} ${isDragging ? 'is-dragging' : ''}`} {...dropProps}>
+      <div className="option-editor-top">
+        {showSpoilers ? (
+          <button
+            type="button"
+            className={`btn-option-indicator ${isCorrect ? 'active' : ''}`}
+            onClick={() => handleOptionCorrectToggle(option.id)}
+            title={isCorrect ? 'Correct choice' : 'Click to mark as correct'}
+          >
+            {option.id}
+          </button>
+        ) : (
+          <span className="option-neutral-badge" title="Option label">
+            {option.id}
+          </span>
+        )}
+        <div className="option-input-wrap">
+          <input
+            type="text"
+            value={option.text}
+            onChange={e => handleOptionTextChange(option.id, e.target.value)}
+            placeholder={`Option ${option.id} text (optional if diagram attached)...`}
+            className="text-input"
+          />
+          {option.text && (
+            <div className="option-math-peek">
+              <MathText text={option.text} />
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="option-diagram-control-row">
+        {isDragging ? (
+          <div className="option-drop-active-pill">
+            <Icon name="upload" size={16} />
+            <strong>Drop image here for Option {option.id} diagram</strong>
+          </div>
+        ) : option.diagramAssetId ? (
+          <div className="option-diagram-attached">
+            <span className="diagram-status-badge">Option {option.id} Diagram:</span>
+            <AssetImage
+              assetId={option.diagramAssetId}
+              role="diagram"
+              pageNumber={null}
+              compact
+              onRemove={() => handleRemoveOptionDiagram(option.id)}
+            />
+          </div>
+        ) : (
+          <div className="option-diagram-add-actions">
+            <label className="button button-secondary button-small btn-option-diagram-upload">
+              <Icon name="upload" size={14} />
+              <span>Attach Diagram</span>
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                style={{ display: 'none' }}
+                onChange={e => {
+                  const file = e.target.files?.[0]
+                  e.target.value = ''
+                  if (file) void handleUploadOptionDiagram(option.id, file)
+                }}
+              />
+            </label>
+            <span className="drag-hint-text">or drag &amp; drop image</span>
+            {availableDiagrams.length > 0 && (
+              <select
+                aria-label={`Link crop to Option ${option.id}`}
+                className="select-small"
+                value=""
+                onChange={e => {
+                  const assetId = e.target.value
+                  if (!assetId) return
+                  handleAssignAssetToOption(assetId, option.id)
+                }}
+              >
+                <option value="">Or link from page crops…</option>
+                {availableDiagrams.map((a, idx) => (
+                  <option key={a.assetId} value={a.assetId}>
+                    Crop #{idx + 1} {a.pageNumber ? `(p.${a.pageNumber})` : ''}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

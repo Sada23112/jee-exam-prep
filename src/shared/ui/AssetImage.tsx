@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { workspaceController, errorMessage } from '../../app/workspace-state'
 import { formatBytes } from './labels'
 
-export function AssetImage({ assetId, role, pageNumber, onRemove }: {
-  assetId: string; role: 'page' | 'crop' | 'diagram'; pageNumber: number | null; onRemove?: () => void
+export function AssetImage({ assetId, role, pageNumber, onRemove, compact }: {
+  assetId: string; role: 'page' | 'crop' | 'diagram'; pageNumber: number | null; onRemove?: () => void; compact?: boolean
 }) {
   const [image, setImage] = useState<{ url: string; name: string; size: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -18,6 +18,35 @@ export function AssetImage({ assetId, role, pageNumber, onRemove }: {
     }).catch(cause => { if (active) setError(errorMessage(cause)) })
     return () => { active = false; if (url) URL.revokeObjectURL(url) }
   }, [assetId])
+
+  if (compact) {
+    return (
+      <div className="asset-compact-card">
+        {error ? (
+          <p role="alert" className="field-error compact-error">{error}</p>
+        ) : image ? (
+          <div className="asset-compact-image-wrapper">
+            <a href={image.url} target="_blank" rel="noopener noreferrer" title={`Open ${image.name} in full view`}>
+              <img src={image.url} alt={`Option ${role} diagram`} loading="lazy" />
+            </a>
+            {onRemove && (
+              <button
+                type="button"
+                className="text-button danger-text asset-compact-remove"
+                onClick={onRemove}
+                title="Remove diagram from option"
+              >
+                ✕ Remove diagram
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="image-loading-compact" role="status">Loading diagram…</div>
+        )}
+      </div>
+    )
+  }
+
   return <figure className="asset-card">
     {error ? <p role="alert" className="field-error">{error}</p> : image
       ? <a href={image.url} target="_blank" rel="noopener noreferrer" aria-label={`Open original ${role}: ${image.name}`}><img src={image.url} alt={`Original ${role}${pageNumber ? `, page ${pageNumber}` : ''}`} loading="lazy" /></a>

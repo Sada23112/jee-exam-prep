@@ -1,4 +1,4 @@
-import type { QuestionDraft, Subject, VerificationState } from '../../question-bank/domain/question'
+import type { QuestionDraft, Subject, VerificationState, QuestionOption } from '../../question-bank/domain/question'
 
 export type AnswerKeyStatus = 'verified' | 'needs-correction' | 'missing' | 'ambiguous'
 export type AnswerSource = 'provided-answer-key' | 'ai-extracted' | 'manually-entered' | 'unspecified'
@@ -49,14 +49,15 @@ export function normalizeDraftOptionsAndKey(draft: ImportedQuestionDraft): Impor
     }
   }
 
-  const baseOptions = draft.options.length > 0
+  const baseOptions: QuestionOption[] = draft.options.length > 0
     ? draft.options
-    : ['A', 'B', 'C', 'D'].map(id => ({ id, text: '' }))
+    : ['A', 'B', 'C', 'D'].map(id => ({ id, text: '', diagramAssetId: null }))
 
   const normalizedOptions = baseOptions.map((opt, idx) => ({
     ...opt,
     id: normalizeOptionId(opt.id, idx),
-    text: opt.text.trim() || `(Option ${normalizeOptionId(opt.id, idx)})`,
+    text: opt.text.trim() || (opt.diagramAssetId ? '' : `(Option ${normalizeOptionId(opt.id, idx)})`),
+    diagramAssetId: opt.diagramAssetId ?? null,
   }))
 
   const seen = new Set<string>()
@@ -163,9 +164,9 @@ export function validateQuestionStructure(draft: ImportedQuestionDraft): {
     if (draft.options.length < 2) {
       errors.push(`${draft.type === 'single-correct' ? 'Single' : 'Multiple'} correct question must have at least 2 options.`)
     }
-    const emptyOptions = draft.options.filter(o => !o.text.trim())
+    const emptyOptions = draft.options.filter(o => !o.text.trim() && !o.diagramAssetId)
     if (emptyOptions.length > 0) {
-      errors.push(`Options ${emptyOptions.map(o => o.id).join(', ')} cannot be empty.`)
+      errors.push(`Options ${emptyOptions.map(o => o.id).join(', ')} cannot be empty (must contain text or a diagram).`)
     }
     // Check that any selected correct options exist in options (normalizing 1->A, 2->B, etc.)
     if (draft.options.length > 0 && draft.correctOptionIds.length > 0) {

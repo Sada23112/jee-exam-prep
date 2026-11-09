@@ -3,18 +3,21 @@ import type { MouseEvent } from 'react'
 import { cropImageToAsset, type CropRectangle } from '../application/image-cropper'
 import type { AssetRecord } from '../../../infrastructure/storage/assets'
 import { Icon } from '../../../shared/ui/Icon'
+import { useFileDrop } from '../../../shared/ui/use-file-drop'
 
 interface DocumentViewerPaneProps {
   pageCanvas: HTMLCanvasElement | null
   currentPage: number
   totalPages: number
   onPageChange: (page: number) => void
-  onCropSaved: (asset: AssetRecord) => void
+  onCropSaved: (asset: AssetRecord, targetOptionId?: string) => void
   onAttachWholePage: () => void
   isAttachingPage?: boolean
   fileName?: string
   isLoadingDoc?: boolean
   onReattachDocument?: () => void
+  onFileDrop?: (file: File) => void
+  optionIds?: string[]
 }
 
 export function DocumentViewerPane({
@@ -28,6 +31,8 @@ export function DocumentViewerPane({
   fileName,
   isLoadingDoc = false,
   onReattachDocument,
+  onFileDrop,
+  optionIds = [],
 }: DocumentViewerPaneProps) {
   const displayCanvasRef = useRef<HTMLCanvasElement>(null)
   const [zoom, setZoom] = useState<number>(1.0)
@@ -36,6 +41,15 @@ export function DocumentViewerPane({
   const [currentRect, setCurrentRect] = useState<CropRectangle | null>(null)
   const [isCropping, setIsCropping] = useState(false)
   const [cropError, setCropError] = useState<string | null>(null)
+
+  const { isDragging: isDraggingDoc, dropProps: docDropProps } = useFileDrop({
+    onFiles: files => {
+      const file = files[0]
+      if (file && onFileDrop) onFileDrop(file)
+    },
+    accept: ['.pdf', 'image/png', 'image/jpeg', 'image/webp', 'application/pdf'],
+    disabled: !onFileDrop,
+  })
 
   // Redraw source canvas to display canvas whenever source canvas or zoom changes
   useEffect(() => {
@@ -93,13 +107,14 @@ export function DocumentViewerPane({
     }
   }
 
-  const handleCropSave = async () => {
+  const handleCropSave = async (targetOptionId?: string) => {
     if (!pageCanvas || !currentRect) return
     setIsCropping(true)
     setCropError(null)
     try {
-      const asset = await cropImageToAsset(pageCanvas, currentRect, `p${currentPage}-crop`, 'diagram')
-      onCropSaved(asset)
+      const name = targetOptionId ? `p${currentPage}-crop-option-${targetOptionId}` : `p${currentPage}-crop`
+      const asset = await cropImageToAsset(pageCanvas, currentRect, name, 'diagram')
+      onCropSaved(asset, targetOptionId)
       setCurrentRect(null)
     } catch (err) {
       setCropError(err instanceof Error ? err.message : 'Failed to crop image.')
@@ -120,7 +135,13 @@ export function DocumentViewerPane({
   }
 
   return (
-    <div className="doc-viewer-pane">
+    <div className={`doc-viewer-pane ${isDraggingDoc ? 'is-dragging-doc' : ''}`} {...docDropProps}>
+      {isDraggingDoc && (
+        <div className="viewer-drop-overlay">
+          <Icon name="upload" size={36} />
+          <strong>Drop PDF or image to attach document</strong>
+        </div>
+      )}
       <div className="viewer-toolbar">
         <div className="viewer-pagination">
           <button
@@ -252,11 +273,29 @@ export function DocumentViewerPane({
                   <button
                     type="button"
                     className="button button-primary button-small crop-action-btn"
-                    onClick={handleCropSave}
+                    onClick={() => handleCropSave()}
                     disabled={isCropping}
+                    title="Attach cropped diagram to question prompt"
                   >
-                    {isCropping ? 'Cropping…' : 'Crop Diagram'}
+                    {isCropping ? 'Cropping…' : 'Crop Prompt'}
                   </button>
+                  {optionIds && optionIds.length > 0 && (
+                    <div className="crop-opt-group">
+                      <span className="crop-opt-label">Option:</span>
+                      {optionIds.map(optId => (
+                        <button
+                          key={optId}
+                          type="button"
+                          className="button button-secondary button-small crop-opt-btn"
+                          onClick={() => handleCropSave(optId)}
+                          disabled={isCropping}
+                          title={`Crop directly for Option ${optId}`}
+                        >
+                          {optId}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <button
                     type="button"
                     className="button button-secondary button-small crop-action-btn"
