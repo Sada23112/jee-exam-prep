@@ -133,6 +133,21 @@ export function AppShell() {
                       Repair workspace
                     </button>
                   )}
+                  {state.error.includes('incomplete or inconsistent revision chain') && (
+                    <button
+                      className="button button-primary"
+                      onClick={async () => {
+                        try {
+                          await workspace.repairRevisionChain()
+                          void workspaceController.refresh()
+                        } catch (err) {
+                          console.error('Revision chain repair failed:', err)
+                        }
+                      }}
+                    >
+                      Repair revision chain
+                    </button>
+                  )}
                 </div>
               </Notice>
             </div>

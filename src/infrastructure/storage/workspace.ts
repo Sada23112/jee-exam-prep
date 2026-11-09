@@ -110,6 +110,113 @@ export class WorkspaceStore implements WorkspaceRepository {
   }
 
   /**
+   * Repairs broken question revision chains by rebuilding a contiguous, time-ordered
+   * sequence from whatever version snapshots remain. Any gaps (missing revision numbers)
+   * are closed by compacting the existing snapshots into a new 1-based sequence, and the
+   * current-question row is updated to reflect the new latest revision.
+   *
+   * This is a last-resort recovery path for IndexedDB corruption that leaves question
+   * version history in an unreadable state. No data is permanently discarded: the
+   * surviving snapshots are preserved; only their revision numbers are renumbered so
+   * they form a valid, contiguous chain.
+   *
+   * Returns the number of questions whose chains were repaired.
+   */
+  async repairRevisionChain(): Promise<number> {
+    return this.db.transaction('rw', this.db.tables, async () => {
+      const allQuestions = await this.db.questions.toArray()
+      const allVersions = await this.db.questionVersions.toArray()
+
+      // Group versions by question id
+      const versionsByQuestion = new Map<string, Question[]>()
+      for (const v of allVersions) {
+        const list = versionsByQuestion.get(v.id) ?? []
+        list.push(v)
+        versionsByQuestion.set(v.id, list)
+      }
+
+      let repairedCount = 0
+      const questionsToUpdate: Question[] = []
+      const versionsToDelete: [string, number][] = []
+      const versionsToAdd: Question[] = []
+
+      for (const question of allQuestions) {
+        const chain = (versionsByQuestion.get(question.id) ?? [])
+          .slice()
+          .sort((a, b) => a.revision - b.revision || Date.parse(a.updatedAt) - Date.parse(b.updatedAt))
+
+        if (chain.length === 0) {
+          // No versions at all — synthesise revision 1 from the current question row
+          const v1: Question = { ...question, revision: 1 }
+          versionsToAdd.push(v1)
+          questionsToUpdate.push({ ...question, revision: 1 })
+          repairedCount++
+          continue
+        }
+
+        // Check if the chain is already valid
+        let alreadyValid = true
+        let lastMs = Number.NEGATIVE_INFINITY
+        let wasArchived = false
+        for (let i = 0; i < chain.length; i++) {
+          const v = chain[i]!
+          const ms = Date.parse(v.updatedAt)
+          if (v.revision !== i + 1 || ms < lastMs || wasArchived) { alreadyValid = false; break }
+          lastMs = ms
+          wasArchived = v.deletedAt !== null
+        }
+        // Also verify the latest version matches the current question row
+        const latest = chain[chain.length - 1]!
+        if (alreadyValid && latest.revision === question.revision && recordEqual(latest, question)) continue
+
+        // Rebuild chain with contiguous revision numbers
+        repairedCount++
+        // Delete all existing version rows for this question
+        for (const v of chain) versionsToDelete.push([v.id, v.revision])
+
+        // Renumber versions 1..N preserving order; ensure strictly increasing timestamps
+        let prevMs = Number.NEGATIVE_INFINITY
+        const rebuilt: Question[] = chain.map((v, i) => {
+          const ms = Math.max(Date.parse(v.updatedAt), prevMs + 1)
+          prevMs = ms
+          const updatedAt = new Date(ms).toISOString()
+          return { ...v, revision: i + 1, updatedAt }
+        })
+
+        for (const v of rebuilt) versionsToAdd.push(v)
+
+        // Update the current question row to match the new latest revision
+        const newLatest = rebuilt[rebuilt.length - 1]!
+        questionsToUpdate.push({ ...question, revision: newLatest.revision, updatedAt: newLatest.updatedAt })
+      }
+
+      if (repairedCount === 0) return 0
+
+      // Apply all changes
+      if (versionsToDelete.length > 0) await this.db.questionVersions.bulkDelete(versionsToDelete)
+      if (versionsToAdd.length > 0) await this.db.questionVersions.bulkPut(versionsToAdd)
+      if (questionsToUpdate.length > 0) await this.db.questions.bulkPut(questionsToUpdate)
+
+      // Recalculate budget from actual stored data
+      const [questions, questionVersions, collections, presets, history, assets] = await Promise.all([
+        this.db.questions.toArray(),
+        this.db.questionVersions.toArray(),
+        this.db.collections.toArray(),
+        this.db.presets.toArray(),
+        this.db.history.toArray(),
+        this.db.assets.toArray(),
+      ])
+      const data = parseWorkspaceData({ questions, questionVersions, collections, presets, history, assets })
+      const marker = await validateSchemaMarker(this.db)
+      const newBudget = calculateWorkspaceBudget(data, marker.budget.revision + 1)
+      assertWorkspaceBudget(newBudget, this.limits)
+      await this.db.metadata.put({ ...marker, budget: newBudget })
+
+      return repairedCount
+    })
+  }
+
+  /**
    * Scans questions and strips dangling references to non-existent assets, restoring referential integrity.
    */
   async repairMissingAssets(): Promise<number> {

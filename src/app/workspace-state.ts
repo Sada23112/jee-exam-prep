@@ -67,6 +67,11 @@ class WorkspaceController {
           // Explicit compatible repair for budget drift (from metadata/cloud synchronization)
           await workspace.repairBudget()
           await workspace.open()
+        } else if (openErr instanceof Error && openErr.message.includes('incomplete or inconsistent revision chain')) {
+          // Explicit compatible repair for broken question revision chains
+          console.warn('Attempting revision chain auto-repair...', openErr.message)
+          await workspace.repairRevisionChain()
+          await workspace.open()
         } else {
           throw openErr
         }
