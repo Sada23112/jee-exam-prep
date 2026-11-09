@@ -1,4 +1,5 @@
 import { workspace } from '../infrastructure/storage/workspace'
+import { syncService } from '../infrastructure/sync/sync-service'
 import type { AssetRecord, BackupInspection } from '../infrastructure/storage/workspace'
 import type { Question, QuestionDraft } from '../modules/question-bank/domain/question'
 import type { CollectionDraft, QuestionCollection } from '../modules/question-bank/domain/collection'
@@ -80,25 +81,30 @@ class WorkspaceController {
   async saveQuestion(draft: QuestionDraft, id?: string, revision?: number): Promise<Question> {
     const saved = await workspace.saveQuestion(draft, id, revision)
     await this.changed()
+    void syncService.queueChange('questions', saved.id, 'upsert')
     return saved
   }
   async saveQuestionsBatch(drafts: QuestionDraft[]): Promise<Question[]> {
     const saved = await workspace.saveQuestionsBatch(drafts)
     await this.changed()
+    for (const q of saved) void syncService.queueChange('questions', q.id, 'upsert')
     return saved
   }
   async archiveQuestions(questions: Question[]): Promise<void> {
     await workspace.archiveQuestions(questions.map(question => question.id), Object.fromEntries(questions.map(question => [question.id, question.revision])))
     await this.changed()
+    for (const q of questions) void syncService.queueChange('questions', q.id, 'delete')
   }
   async saveCollection(draft: CollectionDraft, id?: string, revision?: number): Promise<QuestionCollection> {
     const saved = await workspace.saveCollection(draft, id, revision)
     await this.changed()
+    void syncService.queueChange('collections', saved.id, 'upsert')
     return saved
   }
   async savePreset(draft: PresetDraft, id?: string, revision?: number): Promise<ExamPreset> {
     const saved = await workspace.savePreset(draft, id, revision)
     await this.changed()
+    void syncService.queueChange('presets', saved.id, 'upsert')
     return saved
   }
   async getExam(id: string): Promise<ExamHistoryRecord | undefined> {
@@ -107,6 +113,7 @@ class WorkspaceController {
   async startExam(name: string, preset: ExamPreset, questions: Question[]): Promise<ExamHistoryRecord> {
     const saved = await workspace.startExam(name, preset, questions)
     await this.changed()
+    void syncService.queueChange('history', saved.id, 'upsert')
     return saved
   }
   async saveExamResponses(
@@ -117,6 +124,7 @@ class WorkspaceController {
   ): Promise<ExamHistoryRecord> {
     const saved = await workspace.saveExamResponses(id, revision, responses, finalizeSubmit)
     await this.changed()
+    void syncService.queueChange('history', saved.id, 'upsert')
     return saved
   }
   async archiveHistory(records: ExamHistoryRecord[]): Promise<void> {
@@ -125,8 +133,13 @@ class WorkspaceController {
       Object.fromEntries(records.map(r => [r.id, r.revision])),
     )
     await this.changed()
+    for (const r of records) void syncService.queueChange('history', r.id, 'delete')
   }
-  addImage(file: File, role: 'page' | 'crop' | 'diagram'): Promise<AssetRecord> { return workspace.addImage(file, role) }
+  async addImage(file: File, role: 'page' | 'crop' | 'diagram'): Promise<AssetRecord> {
+    const asset = await workspace.addImage(file, role)
+    void syncService.queueChange('assets', asset.id, 'upsert')
+    return asset
+  }
   getAsset(id: string): Promise<AssetRecord | undefined> { return workspace.getAsset(id) }
   exportBackup(): Promise<Blob> { return workspace.exportBackup() }
   inspectBackup(file: File): Promise<BackupInspection> { return workspace.inspectBackup(file) }

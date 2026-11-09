@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 import { AppShell, AppErrorBoundary, NotFoundPage } from './app/App'
 import { workspaceController } from './app/workspace-state'
+import { AuthProvider } from './infrastructure/firebase/auth-context'
 import { Dashboard } from './modules/question-bank/ui/Dashboard'
 import { QuestionBank } from './modules/question-bank/ui/QuestionBank'
 import { QuestionEditorRoute } from './modules/question-bank/ui/QuestionEditor'
@@ -48,5 +49,13 @@ const router = createBrowserRouter([
 
 const root = document.getElementById('root')
 if (!root) throw new Error('Application root is missing.')
-createRoot(root).render(<StrictMode><AppErrorBoundary><RouterProvider router={router} /></AppErrorBoundary></StrictMode>)
+createRoot(root).render(
+  <StrictMode>
+    <AppErrorBoundary>
+      <AuthProvider>
+        <RouterProvider router={router} />
+      </AuthProvider>
+    </AppErrorBoundary>
+  </StrictMode>,
+)
 void workspaceController.refresh()

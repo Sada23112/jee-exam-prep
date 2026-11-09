@@ -1,6 +1,7 @@
 import type { ExamScoreReport } from '../../results/domain/scoring'
 import type { Question } from '../../question-bank/domain/question'
-import { getStoredGeminiApiKey, getStoredGeminiModel } from '../../importer/application/gemini-extractor'
+import { getStoredGeminiModel } from '../../importer/application/gemini-extractor'
+import { executeGeminiRequest } from '../../../infrastructure/firebase/gemini-proxy-client'
 
 export interface ChapterPerformance {
   chapter: string
@@ -192,53 +193,22 @@ Please provide an actionable, structured post-exam coaching review:
 
 /**
  * Calls Gemini API with the attempt diagnostic to produce a custom tutor analysis.
+ * Prioritizes the authenticated Cloud Function proxy when available, falling back to direct API.
  */
 export async function generateAiTutorAnalysis(
   report: ExamScoreReport,
   questions: Question[],
   examName: string,
 ): Promise<string> {
-  const apiKey = getStoredGeminiApiKey()
-  if (!apiKey) {
-    throw new Error('Gemini API key is not configured. Please add your API key in Settings.')
-  }
-
   const model = getStoredGeminiModel()
   const prompt = buildAiTutorPrompt(report, questions, examName)
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.3,
-      },
-    }),
+  const result = await executeGeminiRequest({
+    prompt,
+    model,
+    temperature: 0.3,
+    task: 'tutoring',
   })
 
-  if (!response.ok) {
-    const errorBody = await response.text()
-    let errorMsg = `Gemini API returned HTTP ${response.status}`
-    try {
-      const parsed = JSON.parse(errorBody) as { error?: { message?: string } }
-      if (parsed.error?.message) errorMsg = parsed.error.message
-    } catch {
-      // ignore
-    }
-    throw new Error(errorMsg)
-  }
-
-  const data = await response.json() as {
-    candidates?: Array<{
-      content?: {
-        parts?: Array<{ text?: string }>
-      }
-    }>
-  }
-
-  const reply = data.candidates?.[0]?.content?.parts?.[0]?.text
-  if (!reply) throw new Error('No analysis text received from Gemini.')
-  return reply
+  return result.text
 }

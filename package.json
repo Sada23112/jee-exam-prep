@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "dexie": "4.4.7",
+    "firebase": "^13.2.0",
     "katex": "0.19.1",
     "pdfjs-dist": "^6.5.438",
     "react": "19.3.1",

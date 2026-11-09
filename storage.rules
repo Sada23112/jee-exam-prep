@@ -1,0 +1,24 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Assets: question papers, diagrams, original pages and crops
+    match /users/{userId}/assets/{assetId}/{fileName} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if request.auth != null 
+                   && request.auth.uid == userId
+                   && request.resource.size <= 10 * 1024 * 1024
+                   && request.resource.contentType.matches('image/(png|jpeg|webp)|application/pdf');
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // User profile avatars
+    match /users/{userId}/avatars/{fileName} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if request.auth != null 
+                   && request.auth.uid == userId
+                   && request.resource.size <= 2 * 1024 * 1024
+                   && request.resource.contentType.matches('image/(png|jpeg|webp)');
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}

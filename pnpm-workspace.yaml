@@ -1,5 +1,7 @@
 allowBuilds:
+  '@firebase/util': true
   esbuild: true
+  protobufjs: true
 # Transitive tooling fix for GHSA-g3hv-75wg-m249; v11 keeps the used minimatch API.
 overrides:
   minimatch: 11.0.1

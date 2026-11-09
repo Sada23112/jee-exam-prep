@@ -1,0 +1,537 @@
+rules_version = '2';
+
+// ===============================================================
+// EXAMORA Cloud Firestore Security Rules
+// ===============================================================
+// Authentic JEE Examination Simulator Security Rules Specification
+// Architecture: Strict per-user isolation under /users/{userId}
+// ===============================================================
+
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Root Path: /users/{userId}
+// Direct document operations are disabled; all data resides in subcollections.
+//
+// 1. Collection: /users/{userId}/profile/{profileId}
+// Document ID: profileId (e.g., 'main')
+// Fields:
+//   - accountUuid: string (required, length >= 32, max 128, immutable)
+//   - email: string (required, valid email address, max 320)
+//   - displayName: string (required, max 100)
+//   - createdAt: timestamp or ISO 8601 string (required, immutable)
+//   - updatedAt: timestamp or ISO 8601 string (required)
+//   - id: string (optional, matches profileId if present)
+//   - schemaVersion: int (optional, value 1)
+//
+// 2. Collection: /users/{userId}/questions/{questionId}
+// Document ID: questionId (UUID)
+// Fields:
+//   - id: string (required, matches questionId, immutable)
+//   - schemaVersion: int (required, value 1)
+//   - ownerId: string (required, max 128, immutable)
+//   - revision: int (required, >= 1, monotonically increasing on update)
+//   - subject: string (required, in ['Physics', 'Chemistry', 'Mathematics'])
+//   - type: string (required, in ['single-correct', 'multiple-correct', 'numerical'])
+//   - prompt: string (required, max 200,000 chars)
+//   - createdAt: string (required, valid ISO 8601 string, immutable)
+//   - updatedAt: string (required, valid ISO 8601 string)
+//   - deletedAt: string or null (optional, valid ISO 8601 string)
+//   - chapter: string (optional, max 500)
+//   - topic: string (optional, max 500)
+//   - year: int or null (optional, 1900..9999)
+//   - session: string (optional, max 200)
+//   - difficulty: string (optional, in ['unspecified', 'easy', 'medium', 'hard'])
+//   - options: list (optional, max 100 choices)
+//   - correctOptionIds: list (optional, max 100 option IDs)
+//   - numericalAnswer: string (optional, max 128)
+//   - numericalTolerance: string (optional, max 128)
+//   - solution: string (optional, max 200,000)
+//   - verification: string (optional, in ['verified', 'needs-review', 'incomplete'])
+//   - answerVerification: string (optional, in ['verified', 'needs-review', 'incomplete'])
+//   - notes: string (optional, max 100,000)
+//   - sourceLabel: string (optional, max 500)
+//   - sourceQuestionNumber: string (optional, max 100)
+//   - assets: list (optional, max 1,000 items)
+//   - remoteRevision: string or null (optional, max 256)
+//
+// 3. Collection: /users/{userId}/collections/{collectionId}
+// Document ID: collectionId (UUID)
+// Fields:
+//   - id: string (required, matches collectionId, immutable)
+//   - schemaVersion: int (required, value 1)
+//   - name: string (required, size 1..200)
+//   - questionIds: list of strings (required, max 20,000 items)
+//   - description: string (optional, max 10,000)
+//   - ownerId: string or null (optional, max 128, immutable)
+//   - revision: int (optional, >= 1)
+//   - createdAt: timestamp or ISO 8601 string (optional, immutable)
+//   - updatedAt: timestamp or ISO 8601 string (optional)
+//   - deletedAt: string or null (optional, ISO 8601 string)
+//   - remoteRevision: string or null (optional, max 256)
+//
+// 4. Collection: /users/{userId}/presets/{presetId}
+// Document ID: presetId (UUID)
+// Fields:
+//   - id: string (required, matches presetId, immutable)
+//   - schemaVersion: int (required, value 1)
+//   - familyId: string (required, max 128, immutable)
+//   - version: int (required, >= 1)
+//   - durationMinutes: int (required, >= 1, max 10,080)
+//   - name: string (optional, max 200)
+//   - description: string (optional, max 10,000)
+//   - subjects: list (optional, max 3)
+//   - questionOrder: string (optional, in ['original', 'randomised'])
+//   - navigation: string (optional, in ['free', 'linear'])
+//   - resumePolicy: string (optional, in ['continue-deadline', 'disallow'])
+//   - marking: map (optional)
+//   - multipleCorrectPolicy: string (optional, value 'exact-set')
+//   - ownerId: string or null (optional, max 128)
+//   - revision: int (optional, >= 1)
+//   - createdAt: timestamp or ISO 8601 string (optional, immutable)
+//   - updatedAt: timestamp or ISO 8601 string (optional)
+//   - deletedAt: string or null (optional, ISO 8601 string)
+//   - remoteRevision: string or null (optional, max 256)
+//
+// 5. Collection: /users/{userId}/history/{attemptId}
+// Document ID: attemptId (UUID)
+// Fields:
+//   - id: string (required, matches attemptId, immutable)
+//   - schemaVersion: int (required, value 1)
+//   - status: string (required, in ['in-progress', 'submitted'])
+//   - name: string (optional, max 200)
+//   - presetSnapshot: map (optional)
+//   - questionSnapshots: list (optional, max 10,000)
+//   - startedAt: timestamp or ISO 8601 string (optional)
+//   - deadlineAt: timestamp or ISO 8601 string (optional)
+//   - submittedAt: timestamp or ISO 8601 string or null (optional)
+//   - responses: list (optional, max 10,000)
+//   - totalScore: number or null (optional, immutable once submitted)
+//   - ownerId: string or null (optional, max 128)
+//   - revision: int (optional, >= 1)
+//   - createdAt: timestamp or ISO 8601 string (optional, immutable)
+//   - updatedAt: timestamp or ISO 8601 string (optional)
+//   - deletedAt: string or null (optional, ISO 8601 string)
+//   - remoteRevision: string or null (optional, max 256)
+//
+// 6. Collection: /users/{userId}/assets/{assetId}
+// Document ID: assetId (UUID)
+// Fields:
+//   - id: string (required, matches assetId, immutable)
+//   - sha256: string (required, 64 hex characters, immutable)
+//   - size: int (required, 1..10,485,760 bytes, immutable)
+//   - role: string (required, in ['page', 'crop', 'diagram'])
+//   - name: string (optional, max 255)
+//   - mimeType: string (optional, in ['image/png', 'image/jpeg', 'image/webp'])
+//   - width: int (optional, 1..40,000,000)
+//   - height: int (optional, 1..40,000,000)
+//   - schemaVersion: int (optional, value 1)
+//   - ownerId: string or null (optional, max 128)
+//   - createdAt: timestamp or ISO 8601 string (optional, immutable)
+//
+// 7. Collection: /users/{userId}/settings/{settingId}
+// Document ID: settingId (e.g., 'main', 'preferences')
+// Fields:
+//   - id: string (optional, matches settingId)
+//   - theme: string (optional, max 50)
+//   - geminiModel: string (optional, max 100)
+//   - fontSize: string or int (optional)
+//   - preferences: map (optional, max 50 keys)
+//   - examDefaults: map (optional, max 50 keys)
+//   - soundEnabled: bool (optional)
+//   - autoSaveInterval: int (optional)
+//   - fullscreen: bool (optional)
+//   - schemaVersion: int (optional)
+//   - createdAt: timestamp or ISO 8601 string (optional, immutable)
+//   - updatedAt: timestamp or ISO 8601 string (optional)
+//
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Global Default Deny
+    // ===============================================================
+    // Deny all reads and writes by default at the root level.
+    // Explicit allows are strictly scoped to authenticated user trees.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ===============================================================
+    // Core Helper Functions
+    // ===============================================================
+
+    // Check if the request is authenticated with Firebase Auth
+    function isAuthenticated() {
+      return request.auth != null && request.auth.uid != null;
+    }
+
+    // Check if authenticated user is the document owner by path UID
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Validate email format and length
+    function isValidEmail(email) {
+      return email is string &&
+        email.size() > 0 &&
+        email.size() <= 320 &&
+        email.matches('^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$');
+    }
+
+    // Validate ISO 8601 date string format (YYYY-MM-DDTHH:MM:SS)
+    function isValidDateString(dateStr) {
+      return dateStr is string &&
+        dateStr.size() <= 64 &&
+        dateStr.matches('^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$');
+    }
+
+    // Validate either native Firestore timestamp or valid ISO 8601 string
+    function isValidTimestampOrDateString(val) {
+      return (val is timestamp) || isValidDateString(val);
+    }
+
+    // Validate 64-character lowercase hex SHA-256 hash
+    function isValidSha256(hash) {
+      return hash is string &&
+        hash.size() == 64 &&
+        hash.matches('^[a-f0-9]{64}$');
+    }
+
+    // ===============================================================
+    // Domain Validator Functions
+    // ===============================================================
+
+    // Profile Document Validator
+    function isValidProfile(data) {
+      return data.keys().hasAll(['accountUuid', 'email', 'displayName', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['accountUuid', 'email', 'displayName', 'createdAt', 'updatedAt', 'id', 'schemaVersion']) &&
+        data.accountUuid is string &&
+        data.accountUuid.size() >= 32 &&
+        data.accountUuid.size() <= 128 &&
+        data.email is string &&
+        isValidEmail(data.email) &&
+        data.displayName is string &&
+        data.displayName.size() <= 100 &&
+        isValidTimestampOrDateString(data.createdAt) &&
+        isValidTimestampOrDateString(data.updatedAt) &&
+        (!('id' in data) || (data.id is string && data.id.size() <= 128)) &&
+        (!('schemaVersion' in data) || data.schemaVersion == 1);
+    }
+
+    // Question Document Validator
+    function isValidQuestion(data, questionId) {
+      return data.keys().hasAll(['id', 'schemaVersion', 'ownerId', 'revision', 'subject', 'type', 'prompt', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly([
+          'id', 'schemaVersion', 'ownerId', 'revision', 'subject', 'type', 'prompt',
+          'createdAt', 'updatedAt', 'deletedAt', 'remoteRevision',
+          'chapter', 'topic', 'year', 'session', 'difficulty',
+          'options', 'correctOptionIds', 'numericalAnswer', 'numericalTolerance',
+          'solution', 'verification', 'answerVerification', 'notes',
+          'sourceLabel', 'sourceQuestionNumber', 'assets'
+        ]) &&
+        data.id == questionId &&
+        data.schemaVersion == 1 &&
+        data.ownerId is string &&
+        data.ownerId.size() > 0 &&
+        data.ownerId.size() <= 128 &&
+        data.revision is int &&
+        data.revision >= 1 &&
+        data.subject in ['Physics', 'Chemistry', 'Mathematics'] &&
+        data.type in ['single-correct', 'multiple-correct', 'numerical'] &&
+        data.prompt is string &&
+        data.prompt.size() <= 200000 &&
+        data.createdAt is string &&
+        isValidDateString(data.createdAt) &&
+        data.updatedAt is string &&
+        isValidDateString(data.updatedAt) &&
+        (!('deletedAt' in data) || data.deletedAt == null || isValidDateString(data.deletedAt)) &&
+        (!('remoteRevision' in data) || data.remoteRevision == null || (data.remoteRevision is string && data.remoteRevision.size() <= 256)) &&
+        (!('chapter' in data) || (data.chapter is string && data.chapter.size() <= 500)) &&
+        (!('topic' in data) || (data.topic is string && data.topic.size() <= 500)) &&
+        (!('year' in data) || data.year == null || (data.year is int && data.year >= 1900 && data.year <= 9999)) &&
+        (!('session' in data) || (data.session is string && data.session.size() <= 200)) &&
+        (!('difficulty' in data) || (data.difficulty in ['unspecified', 'easy', 'medium', 'hard'])) &&
+        (!('options' in data) || (data.options is list && data.options.size() <= 100)) &&
+        (!('correctOptionIds' in data) || (data.correctOptionIds is list && data.correctOptionIds.size() <= 100)) &&
+        (!('numericalAnswer' in data) || (data.numericalAnswer is string && data.numericalAnswer.size() <= 128)) &&
+        (!('numericalTolerance' in data) || (data.numericalTolerance is string && data.numericalTolerance.size() <= 128)) &&
+        (!('solution' in data) || (data.solution is string && data.solution.size() <= 200000)) &&
+        (!('verification' in data) || (data.verification in ['verified', 'needs-review', 'incomplete'])) &&
+        (!('answerVerification' in data) || (data.answerVerification in ['verified', 'needs-review', 'incomplete'])) &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 100000)) &&
+        (!('sourceLabel' in data) || (data.sourceLabel is string && data.sourceLabel.size() <= 500)) &&
+        (!('sourceQuestionNumber' in data) || (data.sourceQuestionNumber is string && data.sourceQuestionNumber.size() <= 100)) &&
+        (!('assets' in data) || (data.assets is list && data.assets.size() <= 1000));
+    }
+
+    // Collection Document Validator
+    function isValidCollection(data, collectionId) {
+      return data.keys().hasAll(['id', 'schemaVersion', 'name', 'questionIds']) &&
+        data.keys().hasOnly(['id', 'schemaVersion', 'name', 'questionIds', 'description', 'ownerId', 'revision', 'createdAt', 'updatedAt', 'deletedAt', 'remoteRevision']) &&
+        data.id == collectionId &&
+        data.schemaVersion == 1 &&
+        data.name is string &&
+        data.name.size() > 0 &&
+        data.name.size() <= 200 &&
+        data.questionIds is list &&
+        data.questionIds.size() <= 20000 &&
+        (!('description' in data) || (data.description is string && data.description.size() <= 10000)) &&
+        (!('ownerId' in data) || data.ownerId == null || (data.ownerId is string && data.ownerId.size() <= 128)) &&
+        (!('revision' in data) || (data.revision is int && data.revision >= 1)) &&
+        (!('createdAt' in data) || isValidTimestampOrDateString(data.createdAt)) &&
+        (!('updatedAt' in data) || isValidTimestampOrDateString(data.updatedAt)) &&
+        (!('deletedAt' in data) || data.deletedAt == null || isValidDateString(data.deletedAt)) &&
+        (!('remoteRevision' in data) || data.remoteRevision == null || (data.remoteRevision is string && data.remoteRevision.size() <= 256));
+    }
+
+    // Preset Document Validator
+    function isValidPreset(data, presetId) {
+      return data.keys().hasAll(['id', 'schemaVersion', 'familyId', 'version', 'durationMinutes']) &&
+        data.keys().hasOnly([
+          'id', 'schemaVersion', 'familyId', 'version', 'durationMinutes',
+          'name', 'description', 'subjects', 'questionOrder', 'navigation',
+          'resumePolicy', 'marking', 'multipleCorrectPolicy',
+          'ownerId', 'revision', 'createdAt', 'updatedAt', 'deletedAt', 'remoteRevision'
+        ]) &&
+        data.id == presetId &&
+        data.schemaVersion == 1 &&
+        data.familyId is string &&
+        data.familyId.size() > 0 &&
+        data.familyId.size() <= 128 &&
+        data.version is int &&
+        data.version >= 1 &&
+        data.durationMinutes is int &&
+        data.durationMinutes >= 1 &&
+        data.durationMinutes <= 10080 &&
+        (!('name' in data) || (data.name is string && data.name.size() > 0 && data.name.size() <= 200)) &&
+        (!('description' in data) || (data.description is string && data.description.size() <= 10000)) &&
+        (!('subjects' in data) || (data.subjects is list && data.subjects.size() <= 3)) &&
+        (!('questionOrder' in data) || (data.questionOrder in ['original', 'randomised'])) &&
+        (!('navigation' in data) || (data.navigation in ['free', 'linear'])) &&
+        (!('resumePolicy' in data) || (data.resumePolicy in ['continue-deadline', 'disallow'])) &&
+        (!('marking' in data) || (data.marking is map)) &&
+        (!('multipleCorrectPolicy' in data) || (data.multipleCorrectPolicy == 'exact-set')) &&
+        (!('ownerId' in data) || data.ownerId == null || (data.ownerId is string && data.ownerId.size() <= 128)) &&
+        (!('revision' in data) || (data.revision is int && data.revision >= 1)) &&
+        (!('createdAt' in data) || isValidTimestampOrDateString(data.createdAt)) &&
+        (!('updatedAt' in data) || isValidTimestampOrDateString(data.updatedAt)) &&
+        (!('deletedAt' in data) || data.deletedAt == null || isValidDateString(data.deletedAt)) &&
+        (!('remoteRevision' in data) || data.remoteRevision == null || (data.remoteRevision is string && data.remoteRevision.size() <= 256));
+    }
+
+    // Exam History / Attempt Document Validator
+    function isValidHistory(data, attemptId) {
+      return data.keys().hasAll(['id', 'schemaVersion', 'status']) &&
+        data.keys().hasOnly([
+          'id', 'schemaVersion', 'status', 'name', 'presetSnapshot', 'questionSnapshots',
+          'startedAt', 'deadlineAt', 'submittedAt', 'responses', 'totalScore',
+          'ownerId', 'revision', 'createdAt', 'updatedAt', 'deletedAt', 'remoteRevision'
+        ]) &&
+        data.id == attemptId &&
+        data.schemaVersion == 1 &&
+        data.status in ['in-progress', 'submitted'] &&
+        (!('name' in data) || (data.name is string && data.name.size() <= 200)) &&
+        (!('presetSnapshot' in data) || (data.presetSnapshot is map)) &&
+        (!('questionSnapshots' in data) || (data.questionSnapshots is list && data.questionSnapshots.size() <= 10000)) &&
+        (!('startedAt' in data) || isValidTimestampOrDateString(data.startedAt)) &&
+        (!('deadlineAt' in data) || isValidTimestampOrDateString(data.deadlineAt)) &&
+        (!('submittedAt' in data) || data.submittedAt == null || isValidTimestampOrDateString(data.submittedAt)) &&
+        (!('responses' in data) || (data.responses is list && data.responses.size() <= 10000)) &&
+        (!('totalScore' in data) || data.totalScore == null || (data.totalScore is number)) &&
+        (!('ownerId' in data) || data.ownerId == null || (data.ownerId is string && data.ownerId.size() <= 128)) &&
+        (!('revision' in data) || (data.revision is int && data.revision >= 1)) &&
+        (!('createdAt' in data) || isValidTimestampOrDateString(data.createdAt)) &&
+        (!('updatedAt' in data) || isValidTimestampOrDateString(data.updatedAt)) &&
+        (!('deletedAt' in data) || data.deletedAt == null || isValidDateString(data.deletedAt)) &&
+        (!('remoteRevision' in data) || data.remoteRevision == null || (data.remoteRevision is string && data.remoteRevision.size() <= 256));
+    }
+
+    // Asset Metadata Document Validator
+    function isValidAsset(data, assetId) {
+      return data.keys().hasAll(['id', 'sha256', 'size', 'role']) &&
+        data.keys().hasOnly(['id', 'sha256', 'size', 'role', 'name', 'mimeType', 'width', 'height', 'ownerId', 'schemaVersion', 'createdAt']) &&
+        data.id == assetId &&
+        data.sha256 is string &&
+        data.sha256.size() == 64 &&
+        isValidSha256(data.sha256) &&
+        data.size is int &&
+        data.size > 0 &&
+        data.size <= 10485760 &&
+        data.role in ['page', 'crop', 'diagram'] &&
+        (!('name' in data) || (data.name is string && data.name.size() > 0 && data.name.size() <= 255)) &&
+        (!('mimeType' in data) || (data.mimeType in ['image/png', 'image/jpeg', 'image/webp'])) &&
+        (!('width' in data) || (data.width is int && data.width >= 1 && data.width <= 40000000)) &&
+        (!('height' in data) || (data.height is int && data.height >= 1 && data.height <= 40000000)) &&
+        (!('schemaVersion' in data) || data.schemaVersion == 1) &&
+        (!('ownerId' in data) || data.ownerId == null || (data.ownerId is string && data.ownerId.size() <= 128)) &&
+        (!('createdAt' in data) || isValidTimestampOrDateString(data.createdAt));
+    }
+
+    // Setting Document Validator
+    function isValidSetting(data, settingId) {
+      return data.keys().hasOnly([
+          'id', 'theme', 'geminiModel', 'fontSize', 'preferences',
+          'examDefaults', 'soundEnabled', 'autoSaveInterval', 'fullscreen',
+          'schemaVersion', 'createdAt', 'updatedAt'
+        ]) &&
+        (!('id' in data) || (data.id is string && data.id == settingId)) &&
+        (!('theme' in data) || (data.theme is string && data.theme.size() <= 50)) &&
+        (!('geminiModel' in data) || (data.geminiModel is string && data.geminiModel.size() <= 100)) &&
+        (!('fontSize' in data) || (data.fontSize is string && data.fontSize.size() <= 50) || (data.fontSize is int && data.fontSize >= 8 && data.fontSize <= 48)) &&
+        (!('preferences' in data) || (data.preferences is map && data.preferences.size() <= 50)) &&
+        (!('examDefaults' in data) || (data.examDefaults is map && data.examDefaults.size() <= 50)) &&
+        (!('soundEnabled' in data) || (data.soundEnabled is bool)) &&
+        (!('autoSaveInterval' in data) || (data.autoSaveInterval is int && data.autoSaveInterval >= 1 && data.autoSaveInterval <= 3600)) &&
+        (!('fullscreen' in data) || (data.fullscreen is bool)) &&
+        (!('schemaVersion' in data) || (data.schemaVersion is int && data.schemaVersion >= 1)) &&
+        (!('createdAt' in data) || isValidTimestampOrDateString(data.createdAt)) &&
+        (!('updatedAt' in data) || isValidTimestampOrDateString(data.updatedAt));
+    }
+
+    // ===============================================================
+    // User Isolation Tree: /users/{userId}/...
+    // ===============================================================
+    match /users/{userId} {
+      // Disallow direct reads/writes on the user root doc to enforce subcollection schema
+      allow read, write: if false;
+
+      // -------------------------------------------------------------
+      // 1. Profile Subcollection: /profile/{profileId}
+      // -------------------------------------------------------------
+      match /profile/{profileId} {
+        allow read: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+          isValidProfile(request.resource.data) &&
+          (!('id' in request.resource.data) || request.resource.data.id == profileId);
+
+        allow update: if isOwner(userId) &&
+          isValidProfile(request.resource.data) &&
+          request.resource.data.accountUuid == resource.data.accountUuid &&
+          request.resource.data.createdAt == resource.data.createdAt &&
+          (!('id' in resource.data) || request.resource.data.id == resource.data.id);
+
+        allow delete: if isOwner(userId);
+      }
+
+      // -------------------------------------------------------------
+      // 2. Questions Subcollection: /questions/{questionId}
+      // -------------------------------------------------------------
+      match /questions/{questionId} {
+        allow read: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+          isValidQuestion(request.resource.data, questionId);
+
+        allow update: if isOwner(userId) &&
+          isValidQuestion(request.resource.data, questionId) &&
+          request.resource.data.id == resource.data.id &&
+          request.resource.data.createdAt == resource.data.createdAt &&
+          request.resource.data.ownerId == resource.data.ownerId &&
+          request.resource.data.revision >= resource.data.revision;
+
+        allow delete: if isOwner(userId);
+      }
+
+      // -------------------------------------------------------------
+      // 3. Question Collections Subcollection: /collections/{collectionId}
+      // -------------------------------------------------------------
+      match /collections/{collectionId} {
+        allow read: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+          isValidCollection(request.resource.data, collectionId);
+
+        allow update: if isOwner(userId) &&
+          isValidCollection(request.resource.data, collectionId) &&
+          request.resource.data.id == resource.data.id &&
+          (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt) &&
+          (!('ownerId' in resource.data) || request.resource.data.ownerId == resource.data.ownerId);
+
+        allow delete: if isOwner(userId);
+      }
+
+      // -------------------------------------------------------------
+      // 4. Examination Presets Subcollection: /presets/{presetId}
+      // -------------------------------------------------------------
+      match /presets/{presetId} {
+        allow read: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+          isValidPreset(request.resource.data, presetId);
+
+        allow update: if isOwner(userId) &&
+          isValidPreset(request.resource.data, presetId) &&
+          request.resource.data.id == resource.data.id &&
+          request.resource.data.familyId == resource.data.familyId &&
+          request.resource.data.version >= resource.data.version &&
+          (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt);
+
+        allow delete: if isOwner(userId);
+      }
+
+      // -------------------------------------------------------------
+      // 5. Exam History / Attempts Subcollection: /history/{attemptId}
+      // -------------------------------------------------------------
+      match /history/{attemptId} {
+        allow read: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+          isValidHistory(request.resource.data, attemptId);
+
+        // Safeguard: Once an attempt is submitted, status cannot revert
+        // to 'in-progress', and totalScore cannot be altered.
+        allow update: if isOwner(userId) &&
+          isValidHistory(request.resource.data, attemptId) &&
+          request.resource.data.id == resource.data.id &&
+          (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt) &&
+          (resource.data.status != 'submitted' ||
+            (request.resource.data.status == 'submitted' &&
+             (('totalScore' in resource.data && 'totalScore' in request.resource.data && request.resource.data.totalScore == resource.data.totalScore) ||
+              (!('totalScore' in resource.data) && !('totalScore' in request.resource.data)))));
+
+        allow delete: if isOwner(userId);
+      }
+
+      // -------------------------------------------------------------
+      // 6. Assets Subcollection: /assets/{assetId}
+      // -------------------------------------------------------------
+      match /assets/{assetId} {
+        allow read: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+          isValidAsset(request.resource.data, assetId);
+
+        allow update: if isOwner(userId) &&
+          isValidAsset(request.resource.data, assetId) &&
+          request.resource.data.id == resource.data.id &&
+          request.resource.data.sha256 == resource.data.sha256 &&
+          request.resource.data.size == resource.data.size &&
+          (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt);
+
+        allow delete: if isOwner(userId);
+      }
+
+      // -------------------------------------------------------------
+      // 7. Settings Subcollection: /settings/{settingId}
+      // -------------------------------------------------------------
+      match /settings/{settingId} {
+        allow read: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+          isValidSetting(request.resource.data, settingId);
+
+        allow update: if isOwner(userId) &&
+          isValidSetting(request.resource.data, settingId) &&
+          (!('id' in resource.data) || request.resource.data.id == resource.data.id) &&
+          (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt);
+
+        allow delete: if isOwner(userId);
+      }
+    }
+  }
+}
