@@ -8,13 +8,22 @@ const env = typeof import.meta !== 'undefined'
   ? (import.meta as unknown as { env?: Record<string, string | undefined> }).env ?? {}
   : {}
 
+const defaultFirebaseConfig = {
+  apiKey: 'AIzaSyAO9yPjfV_XIpR87ZI6HmX5uPWVJ2-_EmQ',
+  authDomain: 'jee-preparation-e3799.firebaseapp.com',
+  projectId: 'jee-preparation-e3799',
+  storageBucket: 'jee-preparation-e3799.firebasestorage.app',
+  messagingSenderId: '531339811563',
+  appId: '1:531339811563:web:d170ff66a39f28484f7cae',
+}
+
 export const firebaseConfig = {
-  apiKey: env.VITE_FIREBASE_API_KEY || '',
-  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || '',
-  projectId: env.VITE_FIREBASE_PROJECT_ID || '',
-  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || '',
-  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
-  appId: env.VITE_FIREBASE_APP_ID || '',
+  apiKey: env.VITE_FIREBASE_API_KEY || defaultFirebaseConfig.apiKey,
+  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || defaultFirebaseConfig.authDomain,
+  projectId: env.VITE_FIREBASE_PROJECT_ID || defaultFirebaseConfig.projectId,
+  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || defaultFirebaseConfig.storageBucket,
+  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || defaultFirebaseConfig.messagingSenderId,
+  appId: env.VITE_FIREBASE_APP_ID || defaultFirebaseConfig.appId,
 }
 
 export function isFirebaseConfigured(): boolean {

@@ -122,7 +122,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loginWithEmail = useCallback(async (email: string, pass: string) => {
     const auth = getFirebaseAuth()
-    if (!auth) throw new Error('Firebase Authentication is not configured.')
+    if (!auth) {
+      const msg = 'Firebase Authentication is not configured or unavailable.'
+      setError(msg)
+      throw new Error(msg)
+    }
     setError(null)
     try {
       await signInWithEmailAndPassword(auth, email.trim(), pass)
@@ -135,7 +139,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const registerWithEmail = useCallback(async (name: string, email: string, pass: string) => {
     const auth = getFirebaseAuth()
-    if (!auth) throw new Error('Firebase Authentication is not configured.')
+    if (!auth) {
+      const msg = 'Firebase Authentication is not configured or unavailable.'
+      setError(msg)
+      throw new Error(msg)
+    }
     setError(null)
     try {
       const cred = await createUserWithEmailAndPassword(auth, email.trim(), pass)
@@ -156,7 +164,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loginWithGoogle = useCallback(async () => {
     const auth = getFirebaseAuth()
-    if (!auth) throw new Error('Firebase Authentication is not configured.')
+    if (!auth) {
+      const msg = 'Firebase Authentication is not configured or unavailable.'
+      setError(msg)
+      throw new Error(msg)
+    }
     setError(null)
     try {
       const provider = new GoogleAuthProvider()
@@ -171,7 +183,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const sendPasswordReset = useCallback(async (email: string) => {
     const auth = getFirebaseAuth()
-    if (!auth) throw new Error('Firebase Authentication is not configured.')
+    if (!auth) {
+      const msg = 'Firebase Authentication is not configured or unavailable.'
+      setError(msg)
+      throw new Error(msg)
+    }
     setError(null)
     try {
       await sendPasswordResetEmail(auth, email.trim())
@@ -278,6 +294,15 @@ function mapAuthErrorMessage(err: unknown): string {
   }
   if (message.includes('auth/popup-closed-by-user')) {
     return 'Sign in was cancelled (popup closed).'
+  }
+  if (message.includes('auth/popup-blocked')) {
+    return 'Sign in popup was blocked by your browser. Please allow popups for this site and try again.'
+  }
+  if (message.includes('auth/unauthorized-domain')) {
+    return 'This domain is not authorized in Firebase Authentication. Please add this domain to Authorized Domains in Firebase Console.'
+  }
+  if (message.includes('auth/operation-not-allowed')) {
+    return 'This sign-in method is not enabled in Firebase Authentication. Please enable Email/Password or Google provider in Firebase Console.'
   }
   if (message.includes('auth/too-many-requests')) {
     return 'Too many unsuccessful attempts. Access temporarily disabled; please try again later or reset password.'

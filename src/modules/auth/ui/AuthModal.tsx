@@ -98,8 +98,8 @@ export function AuthModal({ open, onClose, initialMode = 'signin' }: AuthModalPr
       try {
         await registerWithEmail(name.trim(), email.trim(), password)
         handleClose()
-      } catch {
-        // error captured in context
+      } catch (err) {
+        setLocalError(err instanceof Error ? err.message : 'Registration failed. Please try again.')
       } finally {
         setLoading(false)
       }
@@ -109,8 +109,8 @@ export function AuthModal({ open, onClose, initialMode = 'signin' }: AuthModalPr
       try {
         await loginWithEmail(email.trim(), password)
         handleClose()
-      } catch {
-        // error captured in context
+      } catch (err) {
+        setLocalError(err instanceof Error ? err.message : 'Sign in failed. Please verify your credentials.')
       } finally {
         setLoading(false)
       }
@@ -123,8 +123,8 @@ export function AuthModal({ open, onClose, initialMode = 'signin' }: AuthModalPr
     try {
       await loginWithGoogle()
       handleClose()
-    } catch {
-      // error captured in context
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : 'Google sign-in failed. Please try again.')
     } finally {
       setLoading(false)
     }
